@@ -6,12 +6,16 @@ import (
 	"strings"
 )
 
+// gzipWriter сжимает тело ответа, если к моменту записи заголовков
+// обработчик выставил Content-Type: application/json.
 type gzipWriter struct {
 	http.ResponseWriter
 	zw      *gzip.Writer
 	decided bool
 }
 
+// WriteHeader при первом вызове решает, сжимать ли ответ, и отправляет
+// заголовки с кодом status.
 func (g *gzipWriter) WriteHeader(status int) {
 	if !g.decided {
 		g.decided = true
@@ -24,6 +28,8 @@ func (g *gzipWriter) WriteHeader(status int) {
 	g.ResponseWriter.WriteHeader(status)
 }
 
+// Write пишет b в ответ, сжимая его, если так решил WriteHeader. Без явного
+// WriteHeader ответ уходит с кодом 200.
 func (g *gzipWriter) Write(b []byte) (int, error) {
 	if !g.decided {
 		g.WriteHeader(http.StatusOK)
@@ -34,6 +40,7 @@ func (g *gzipWriter) Write(b []byte) (int, error) {
 	return g.ResponseWriter.Write(b)
 }
 
+// Close дописывает хвост gzip-потока. Для несжатого ответа ничего не делает.
 func (g *gzipWriter) Close() error {
 	if g.zw == nil {
 		return nil

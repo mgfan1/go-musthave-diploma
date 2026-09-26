@@ -12,7 +12,6 @@ import (
 
 	"github.com/mgfan1/go-musthave-diploma/internal/auth"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
-	"github.com/mgfan1/go-musthave-diploma/internal/service/mocks"
 )
 
 const password = "пароль гофера"
@@ -34,7 +33,7 @@ func TestRegister(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			repo := mocks.NewUserRepository(t)
+			repo := newMockUserRepository(t)
 			repo.On("CreateUser", mock.Anything, "gopher", mock.MatchedBy(func(hash string) bool {
 				return auth.CheckPassword(hash, password)
 			})).Return(c.id, c.repoErr)
@@ -55,7 +54,7 @@ func TestRegister(t *testing.T) {
 }
 
 func TestRegisterTooLongPassword(t *testing.T) {
-	repo := mocks.NewUserRepository(t)
+	repo := newMockUserRepository(t)
 
 	_, err := NewUsers(repo, auth.NewTokens("секрет", time.Hour)).
 		Register(t.Context(), "gopher", strings.Repeat("a", auth.MaxPasswordLen+1))
@@ -85,7 +84,7 @@ func TestLogin(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			repo := mocks.NewUserRepository(t)
+			repo := newMockUserRepository(t)
 			repo.On("UserByLogin", mock.Anything, "gopher").Return(c.user, c.repoErr)
 
 			token, err := NewUsers(repo, tokens).Login(t.Context(), "gopher", c.password)

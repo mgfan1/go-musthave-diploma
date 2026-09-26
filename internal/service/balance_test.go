@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
-	"github.com/mgfan1/go-musthave-diploma/internal/service/mocks"
 )
 
 func TestWithdraw(t *testing.T) {
@@ -28,7 +27,7 @@ func TestWithdraw(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			repo := mocks.NewBalanceRepository(t)
+			repo := newMockBalanceRepository(t)
 			repo.On("Withdraw", mock.Anything, int64(7), "2377225624", model.Money(751.5)).Return(c.repoErr)
 
 			err := NewBalance(repo).Withdraw(t.Context(), 7, "2377225624", 751.5)
@@ -58,7 +57,7 @@ func TestWithdrawRejectsBadInput(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			repo := mocks.NewBalanceRepository(t)
+			repo := newMockBalanceRepository(t)
 
 			err := NewBalance(repo).Withdraw(t.Context(), 7, c.order, c.sum)
 			assert.ErrorIs(t, err, c.wantErr)
@@ -69,7 +68,7 @@ func TestWithdrawRejectsBadInput(t *testing.T) {
 func TestGetBalance(t *testing.T) {
 	want := model.Balance{Current: 500.5, Withdrawn: 42}
 
-	repo := mocks.NewBalanceRepository(t)
+	repo := newMockBalanceRepository(t)
 	repo.On("Balance", mock.Anything, int64(7)).Return(want, nil)
 
 	got, err := NewBalance(repo).Get(t.Context(), 7)
@@ -80,7 +79,7 @@ func TestGetBalance(t *testing.T) {
 func TestListWithdrawals(t *testing.T) {
 	want := []model.Withdrawal{{Order: "2377225624", Sum: 500, ProcessedAt: time.Now()}}
 
-	repo := mocks.NewBalanceRepository(t)
+	repo := newMockBalanceRepository(t)
 	repo.On("UserWithdrawals", mock.Anything, int64(7)).Return(want, nil)
 
 	got, err := NewBalance(repo).Withdrawals(t.Context(), 7)

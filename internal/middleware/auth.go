@@ -9,6 +9,8 @@ import (
 
 // TokenParser проверяет токен доступа и возвращает идентификатор пользователя.
 type TokenParser interface {
+	// Parse проверяет подпись и срок действия token и возвращает
+	// идентификатор пользователя из него.
 	Parse(token string) (int64, error)
 }
 

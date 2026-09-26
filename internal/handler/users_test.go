@@ -13,7 +13,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/auth"
-	"github.com/mgfan1/go-musthave-diploma/internal/handler/mocks"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
@@ -29,10 +28,10 @@ type credentialsCase struct {
 func checkCredentialsCase(t *testing.T, method, path string, c credentialsCase) {
 	t.Helper()
 
-	users := mocks.NewUserService(t)
+	users := newMockUserService(t)
 	users.On(method, mock.Anything, "gopher", "secret").Return(c.token, c.err)
 
-	w := send(newRouter(users, mocks.NewOrderService(t), mocks.NewBalanceService(t)), http.MethodPost, path, goodCredentials, "")
+	w := send(newRouter(users, newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, path, goodCredentials, "")
 
 	assert.Equal(t, c.wantCode, w.Code)
 	if c.wantCode == http.StatusOK {
@@ -94,7 +93,7 @@ func TestCredentialsBadRequest(t *testing.T) {
 	for _, path := range []string{"/api/user/register", "/api/user/login"} {
 		for _, b := range bodies {
 			t.Run(path+" "+b.name, func(t *testing.T) {
-				w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t), mocks.NewBalanceService(t)), http.MethodPost, path, b.body, "")
+				w := send(newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, path, b.body, "")
 				assert.Equal(t, http.StatusBadRequest, w.Code)
 			})
 		}
@@ -106,13 +105,13 @@ func TestRegisterTokenOpensProtectedRoutes(t *testing.T) {
 	token, err := tokens.Issue(7)
 	require.NoError(t, err)
 
-	users := mocks.NewUserService(t)
+	users := newMockUserService(t)
 	users.On("Register", mock.Anything, "gopher", "secret").Return(token, nil)
 
-	balance := mocks.NewBalanceService(t)
+	balance := newMockBalanceService(t)
 	balance.On("Get", mock.Anything, int64(7)).Return(model.Balance{}, nil)
 
-	router := New(users, mocks.NewOrderService(t), balance, zap.NewNop()).Router(zap.NewNop(), tokens)
+	router := New(users, newMockOrderService(t), balance, zap.NewNop()).Router(zap.NewNop(), tokens)
 
 	reg := send(router, http.MethodPost, "/api/user/register", goodCredentials, "")
 	require.Equal(t, http.StatusOK, reg.Code)

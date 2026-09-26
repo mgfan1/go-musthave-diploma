@@ -11,15 +11,14 @@ import (
 	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
 
-	"github.com/mgfan1/go-musthave-diploma/internal/accrual/mocks"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
-func newTestPoller(t *testing.T) (*Poller, *mocks.Orders, *mocks.Fetcher) {
+func newTestPoller(t *testing.T) (*Poller, *mockOrders, *mockFetcher) {
 	t.Helper()
 
-	orders := mocks.NewOrders(t)
-	fetcher := mocks.NewFetcher(t)
+	orders := newMockOrders(t)
+	fetcher := newMockFetcher(t)
 
 	return NewPoller(orders, fetcher, zap.NewNop()), orders, fetcher
 }

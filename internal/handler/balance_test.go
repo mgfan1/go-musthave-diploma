@@ -12,13 +12,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mgfan1/go-musthave-diploma/internal/handler/mocks"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
 func balanceRouter(t *testing.T, balance BalanceService) http.Handler {
 	t.Helper()
-	return newRouter(mocks.NewUserService(t), mocks.NewOrderService(t), balance)
+	return newRouter(newMockUserService(t), newMockOrderService(t), balance)
 }
 
 func TestGetBalance(t *testing.T) {
@@ -35,7 +34,7 @@ func TestGetBalance(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			balance := mocks.NewBalanceService(t)
+			balance := newMockBalanceService(t)
 			balance.On("Get", mock.Anything, int64(7)).Return(c.balance, nil)
 
 			w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/balance", "", bearer(t, 7))
@@ -49,12 +48,12 @@ func TestGetBalance(t *testing.T) {
 
 func TestGetBalanceFailures(t *testing.T) {
 	t.Run("без токена", func(t *testing.T) {
-		w := send(balanceRouter(t, mocks.NewBalanceService(t)), http.MethodGet, "/api/user/balance", "", "")
+		w := send(balanceRouter(t, newMockBalanceService(t)), http.MethodGet, "/api/user/balance", "", "")
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
 	t.Run("сбой сервиса", func(t *testing.T) {
-		balance := mocks.NewBalanceService(t)
+		balance := newMockBalanceService(t)
 		balance.On("Get", mock.Anything, int64(7)).Return(model.Balance{}, errors.New("база недоступна"))
 
 		w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/balance", "", bearer(t, 7))
@@ -85,7 +84,7 @@ func TestWithdraw(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			balance := mocks.NewBalanceService(t)
+			balance := newMockBalanceService(t)
 			balance.On("Withdraw", mock.Anything, int64(7), "2377225624", c.sum).Return(c.err)
 
 			w := send(balanceRouter(t, balance), http.MethodPost, "/api/user/balance/withdraw", c.body, bearer(t, 7))
@@ -115,7 +114,7 @@ func TestWithdrawBadRequest(t *testing.T) {
 
 	for _, b := range bodies {
 		t.Run(b.name, func(t *testing.T) {
-			w := send(balanceRouter(t, mocks.NewBalanceService(t)), http.MethodPost, "/api/user/balance/withdraw", b.body, bearer(t, 7))
+			w := send(balanceRouter(t, newMockBalanceService(t)), http.MethodPost, "/api/user/balance/withdraw", b.body, bearer(t, 7))
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 		})
 	}
@@ -123,7 +122,7 @@ func TestWithdrawBadRequest(t *testing.T) {
 
 func TestWithdrawWithoutTokenIsUnauthorizedBeforeValidation(t *testing.T) {
 	for _, body := range []string{`{"order":"12345678902","sum":-1}`, `{"order":`} {
-		w := send(balanceRouter(t, mocks.NewBalanceService(t)), http.MethodPost, "/api/user/balance/withdraw", body, "")
+		w := send(balanceRouter(t, newMockBalanceService(t)), http.MethodPost, "/api/user/balance/withdraw", body, "")
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	}
 }
@@ -131,7 +130,7 @@ func TestWithdrawWithoutTokenIsUnauthorizedBeforeValidation(t *testing.T) {
 func TestListWithdrawals(t *testing.T) {
 	msk := time.FixedZone("MSK", 3*60*60)
 
-	balance := mocks.NewBalanceService(t)
+	balance := newMockBalanceService(t)
 	balance.On("Withdrawals", mock.Anything, int64(7)).Return([]model.Withdrawal{
 		{Order: "2377225624", Sum: 500, ProcessedAt: time.Date(2020, 12, 9, 16, 9, 57, 0, msk)},
 		{Order: "12345678903", Sum: 729.98, ProcessedAt: time.Date(2020, 12, 9, 16, 5, 1, 500, msk)},
@@ -160,7 +159,7 @@ func TestListWithdrawalsEmpty(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			balance := mocks.NewBalanceService(t)
+			balance := newMockBalanceService(t)
 			balance.On("Withdrawals", mock.Anything, int64(7)).Return(c.withdrawals, nil)
 
 			req := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
@@ -180,12 +179,12 @@ func TestListWithdrawalsEmpty(t *testing.T) {
 
 func TestListWithdrawalsFailures(t *testing.T) {
 	t.Run("без токена", func(t *testing.T) {
-		w := send(balanceRouter(t, mocks.NewBalanceService(t)), http.MethodGet, "/api/user/withdrawals", "", "")
+		w := send(balanceRouter(t, newMockBalanceService(t)), http.MethodGet, "/api/user/withdrawals", "", "")
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
 	t.Run("сбой сервиса", func(t *testing.T) {
-		balance := mocks.NewBalanceService(t)
+		balance := newMockBalanceService(t)
 		balance.On("Withdrawals", mock.Anything, int64(7)).Return(nil, errors.New("база недоступна"))
 
 		w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/withdrawals", "", bearer(t, 7))

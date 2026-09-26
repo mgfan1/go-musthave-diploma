@@ -7,21 +7,26 @@ import (
 	"go.uber.org/zap"
 )
 
+// responseRecorder запоминает код и размер ответа для журнала.
 type responseRecorder struct {
 	http.ResponseWriter
 	status int
 	size   int
 }
 
+// Unwrap возвращает исходный ResponseWriter, чтобы http.ResponseController
+// мог добраться до его возможностей.
 func (r *responseRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
+// WriteHeader запоминает код ответа status и передаёт его дальше.
 func (r *responseRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
 }
 
+// Write пишет b в ответ и прибавляет записанные байты к размеру ответа.
 func (r *responseRecorder) Write(b []byte) (int, error) {
 	n, err := r.ResponseWriter.Write(b)
 	r.size += n

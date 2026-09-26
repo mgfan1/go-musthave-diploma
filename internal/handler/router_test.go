@@ -12,7 +12,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/auth"
-	"github.com/mgfan1/go-musthave-diploma/internal/handler/mocks"
 )
 
 const testSecret = "секрет для тестов"
@@ -64,7 +63,7 @@ func TestProtectedRoutesRequireToken(t *testing.T) {
 		{"чужая подпись", "Bearer " + foreign},
 	}
 
-	router := newRouter(mocks.NewUserService(t), mocks.NewOrderService(t), mocks.NewBalanceService(t))
+	router := newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t))
 
 	for _, rt := range routes {
 		for _, h := range headers {
@@ -77,6 +76,6 @@ func TestProtectedRoutesRequireToken(t *testing.T) {
 }
 
 func TestRouterUnknownPath(t *testing.T) {
-	w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t), mocks.NewBalanceService(t)), http.MethodGet, "/api/user/unknown", "", "")
+	w := send(newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t)), http.MethodGet, "/api/user/unknown", "", "")
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }

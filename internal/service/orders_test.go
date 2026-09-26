@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
-	"github.com/mgfan1/go-musthave-diploma/internal/service/mocks"
 )
 
 func TestUploadOrder(t *testing.T) {
@@ -33,7 +32,7 @@ func TestUploadOrder(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			repo := mocks.NewOrderRepository(t)
+			repo := newMockOrderRepository(t)
 			repo.On("CreateOrder", mock.Anything, userID, "12345678903").Return(c.ownerID, c.created, c.repoErr)
 
 			created, err := NewOrders(repo).Upload(t.Context(), userID, "12345678903")
@@ -51,7 +50,7 @@ func TestUploadOrder(t *testing.T) {
 func TestUploadOrderRejectsInvalidNumber(t *testing.T) {
 	for _, number := range []string{"12345678902", "abc", "", "1234 5678 903"} {
 		t.Run(number, func(t *testing.T) {
-			repo := mocks.NewOrderRepository(t)
+			repo := newMockOrderRepository(t)
 
 			_, err := NewOrders(repo).Upload(t.Context(), 7, number)
 			assert.ErrorIs(t, err, model.ErrInvalidOrderNumber)
@@ -75,7 +74,7 @@ func TestApplyAccrual(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			repo := mocks.NewOrderRepository(t)
+			repo := newMockOrderRepository(t)
 			repo.On("UpdateOrder", mock.Anything, "12345678903", c.result.Status, c.wantAccrual).Return(nil)
 
 			require.NoError(t, NewOrders(repo).ApplyAccrual(t.Context(), "12345678903", c.result))
@@ -86,7 +85,7 @@ func TestApplyAccrual(t *testing.T) {
 func TestApplyAccrualRejectsImpossibleStatus(t *testing.T) {
 	for _, status := range []model.OrderStatus{model.StatusNew, "REGISTERED", ""} {
 		t.Run(string(status), func(t *testing.T) {
-			repo := mocks.NewOrderRepository(t)
+			repo := newMockOrderRepository(t)
 
 			err := NewOrders(repo).ApplyAccrual(t.Context(), "12345678903", model.AccrualResult{Status: status})
 			assert.Error(t, err)
@@ -97,7 +96,7 @@ func TestApplyAccrualRejectsImpossibleStatus(t *testing.T) {
 func TestApplyAccrualRepositoryError(t *testing.T) {
 	boom := errors.New("база недоступна")
 
-	repo := mocks.NewOrderRepository(t)
+	repo := newMockOrderRepository(t)
 	repo.On("UpdateOrder", mock.Anything, "12345678903", model.StatusInvalid, (*model.Money)(nil)).Return(boom)
 
 	err := NewOrders(repo).ApplyAccrual(t.Context(), "12345678903", model.AccrualResult{Status: model.StatusInvalid})
@@ -105,7 +104,7 @@ func TestApplyAccrualRepositoryError(t *testing.T) {
 }
 
 func TestClaimPending(t *testing.T) {
-	repo := mocks.NewOrderRepository(t)
+	repo := newMockOrderRepository(t)
 	repo.On("ClaimPendingOrders", mock.Anything, 10).Return([]string{"12345678903"}, nil)
 
 	got, err := NewOrders(repo).ClaimPending(t.Context(), 10)
@@ -116,7 +115,7 @@ func TestClaimPending(t *testing.T) {
 func TestListOrders(t *testing.T) {
 	want := []model.Order{{Number: "12345678903", Status: model.StatusNew, UploadedAt: time.Now()}}
 
-	repo := mocks.NewOrderRepository(t)
+	repo := newMockOrderRepository(t)
 	repo.On("UserOrders", mock.Anything, int64(7)).Return(want, nil)
 
 	got, err := NewOrders(repo).List(t.Context(), 7)
