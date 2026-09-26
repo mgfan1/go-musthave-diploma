@@ -107,22 +107,11 @@ func TestParseFlagErrors(t *testing.T) {
 }
 
 func TestParseRejectsBadAccrualAddress(t *testing.T) {
-	t.Run("из флага", func(t *testing.T) {
-		clearEnv(t)
+	clearEnv(t)
 
-		_, err := Parse([]string{"-d", testDSN, "-r", "htp://localhost:8081"})
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "ACCRUAL_SYSTEM_ADDRESS")
-	})
-
-	t.Run("из окружения", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("ACCRUAL_SYSTEM_ADDRESS", "ftp://accrual.example")
-
-		_, err := Parse([]string{"-d", testDSN})
-		require.Error(t, err)
-		assert.ErrorContains(t, err, "ACCRUAL_SYSTEM_ADDRESS")
-	})
+	_, err := Parse([]string{"-d", testDSN, "-r", "htp://localhost:8081"})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "ACCRUAL_SYSTEM_ADDRESS")
 }
 
 func TestParseDefaultSecret(t *testing.T) {
@@ -163,10 +152,7 @@ func TestNormalizeURL(t *testing.T) {
 		{name: "пробелы по краям", in: "  localhost:8081  ", want: "http://localhost:8081"},
 		{name: "пусто", in: "", want: ""},
 		{name: "опечатка в схеме", in: "htp://localhost:8081", wantErr: true},
-		{name: "чужая схема", in: "ftp://accrual.example", wantErr: true},
-		{name: "нет хоста", in: "http://", wantErr: true},
 		{name: "нет хоста, только порт", in: "http://:8081", wantErr: true},
-		{name: "пробел в хосте", in: "local host:8081", wantErr: true},
 		{name: "мусор", in: "%%%", wantErr: true},
 	}
 

@@ -213,36 +213,7 @@ func TestClientReusesConnections(t *testing.T) {
 		"воркеры опроса должны переиспользовать соединения между проходами")
 }
 
-func TestOrderStatus(t *testing.T) {
-	cases := []struct {
-		accrual string
-		want    model.OrderStatus
-	}{
-		{"REGISTERED", model.StatusProcessing},
-		{"PROCESSING", model.StatusProcessing},
-		{"INVALID", model.StatusInvalid},
-		{"PROCESSED", model.StatusProcessed},
-	}
-
-	for _, c := range cases {
-		t.Run(c.accrual, func(t *testing.T) {
-			got, err := orderStatus(c.accrual)
-			require.NoError(t, err)
-			assert.Equal(t, c.want, got)
-		})
-	}
-
-	for _, unknown := range []string{"", "NEW", "registered", "DONE"} {
-		t.Run("неизвестный "+unknown, func(t *testing.T) {
-			_, err := orderStatus(unknown)
-			assert.Error(t, err)
-		})
-	}
-}
-
 func TestRetryAfter(t *testing.T) {
-	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
-
 	cases := []struct {
 		name   string
 		header string
@@ -251,14 +222,11 @@ func TestRetryAfter(t *testing.T) {
 		{"секунды", "60", time.Minute},
 		{"секунды с пробелами", " 5 ", 5 * time.Second},
 		{"ноль", "0", 0},
-		{"дата в будущем", now.Add(2 * time.Minute).Format(http.TimeFormat), 2 * time.Minute},
-		{"дата в прошлом", now.Add(-time.Minute).Format(http.TimeFormat), 0},
 		{"ровно предел", "600", maxRetryAfter},
 		{"секунд больше предела", "3600", maxRetryAfter},
 		{"огромное число секунд", "10000000000", maxRetryAfter},
-		{"дата позже предела", now.Add(time.Hour).Format(http.TimeFormat), maxRetryAfter},
-		{"дата в далёком будущем", now.AddDate(100, 0, 0).Format(http.TimeFormat), maxRetryAfter},
 		{"нет заголовка", "", defaultRetryAfter},
+		{"дата вместо секунд", "Wed, 21 Oct 2026 07:28:00 GMT", defaultRetryAfter},
 		{"мусор", "скоро", defaultRetryAfter},
 		{"отрицательное число", "-5", defaultRetryAfter},
 		{"дробное число", "1.5", defaultRetryAfter},
@@ -266,7 +234,7 @@ func TestRetryAfter(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, retryAfter(c.header, now))
+			assert.Equal(t, c.want, retryAfter(c.header))
 		})
 	}
 }

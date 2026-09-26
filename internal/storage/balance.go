@@ -35,10 +35,9 @@ const withdrawIfEnough = userTotals + `, amount AS MATERIALIZED (
 	FROM accrued, withdrawn, amount
 	WHERE accrued.total - withdrawn.total >= amount.value`
 
-// Balance считает баланс пользователя userID одним запросом: начисления
-// по обработанным заказам минус списания и отдельно сумму списаний.
-// Суммы складывает база в numeric, так что копейки не теряются. Если
-// у пользователя нет ни начислений, ни списаний, обе суммы равны нулю.
+// Balance возвращает баланс пользователя userID: начисления по обработанным
+// заказам минус списания, и сумму списаний. Если нет ни того, ни другого,
+// обе суммы нулевые.
 func (s *PGStorage) Balance(ctx context.Context, userID int64) (model.Balance, error) {
 	var b model.Balance
 	err := s.db.QueryRowContext(ctx,
@@ -54,12 +53,11 @@ func (s *PGStorage) Balance(ctx context.Context, userID int64) (model.Balance, e
 	return b, nil
 }
 
-// Withdraw списывает sum баллов пользователя userID в счёт заказа order.
-// Сумма округляется до копеек, и с балансом сравнивается уже округлённая сумма.
-// Параллельные списания одного пользователя выполняются по очереди. Если баллов
-// не хватает, возвращает model.ErrInsufficientFunds, если сумма после округления
-// нулевая или не помещается в numeric(12,2), model.ErrInvalidWithdrawSum, а если
-// пользователя нет, model.ErrUserNotFound.
+// Withdraw списывает sum баллов пользователя userID в счёт заказа order,
+// округлив сумму до копеек. Списания одного пользователя идут по очереди.
+// Возвращает model.ErrInsufficientFunds, если баллов не хватает,
+// model.ErrInvalidWithdrawSum, если округлённая сумма нулевая или
+// не помещается в numeric(12,2), и model.ErrUserNotFound, если пользователя нет.
 func (s *PGStorage) Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

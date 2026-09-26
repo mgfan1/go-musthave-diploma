@@ -24,16 +24,10 @@ func New(log *zap.Logger, delays ...time.Duration) *Retrier {
 	return &Retrier{log: log, delays: delays}
 }
 
-// Do выполняет op и повторяет её после каждой паузы, пока retriable признаёт
-// ошибку временной. Возвращает ошибку последней попытки. Если ctx отменён
-// между попытками, возвращает ошибку контекста вместе с ошибкой последней
-// попытки, обе доступны через errors.Is. Если ctx отменён ещё до первой
-// попытки, op не вызывается и возвращается ctx.Err().
+// Do выполняет op и повторяет её после пауз, пока retriable считает ошибку
+// временной, и возвращает ошибку последней попытки. Если ctx отменён, пока
+// ошибка временная, к ней добавляется ошибка контекста.
 func (r *Retrier) Do(ctx context.Context, retriable func(error) bool, op func() error) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
 	err := op()
 
 	for i, delay := range r.delays {

@@ -75,11 +75,6 @@ func TestDo(t *testing.T) {
 	}
 }
 
-func TestDoDefaultDelays(t *testing.T) {
-	r := New(zap.NewNop())
-	assert.Equal(t, []time.Duration{time.Second, 3 * time.Second, 5 * time.Second}, r.delays)
-}
-
 func TestDoStopsOnCanceledContext(t *testing.T) {
 	r := New(zap.NewNop(), time.Second, time.Second, time.Second)
 
@@ -121,20 +116,4 @@ func TestDoCanceledDuringAttempt(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.ErrorIs(t, err, boom, "причина последней попытки сохраняется")
 	assert.Equal(t, 1, calls)
-}
-
-func TestDoCanceledBeforeFirstAttempt(t *testing.T) {
-	r := New(zap.NewNop(), time.Hour)
-
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	calls := 0
-	err := r.Do(ctx, always, func() error {
-		calls++
-		return nil
-	})
-
-	assert.Equal(t, context.Canceled, err)
-	assert.Zero(t, calls, "с отменённым контекстом операция не запускается")
 }

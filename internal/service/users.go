@@ -8,7 +8,7 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
-// UserRepository описывает хранилище пользователей.
+// UserRepository хранит пользователей.
 type UserRepository interface {
 	// CreateUser сохраняет пользователя и возвращает его идентификатор.
 	// Если логин занят, возвращает model.ErrLoginTaken.
@@ -25,8 +25,7 @@ type TokenIssuer interface {
 }
 
 // Users регистрирует пользователей и проверяет их пароли. И регистрация,
-// и вход заканчиваются выдачей токена доступа, поэтому после регистрации
-// отдельный вход не нужен.
+// и вход возвращают токен доступа.
 type Users struct {
 	repo   UserRepository
 	tokens TokenIssuer
@@ -39,11 +38,8 @@ func NewUsers(repo UserRepository, tokens TokenIssuer) *Users {
 }
 
 // Register создаёт пользователя и сразу выпускает для него токен доступа.
-// Если пароль длиннее auth.MaxPasswordLen байт, возвращает
-// model.ErrPasswordTooLong, а если логин занят, model.ErrLoginTaken.
-// Если токен выпустить не удалось, возвращает ошибку, но пользователь уже
-// сохранён: повторная регистрация с тем же логином получит
-// model.ErrLoginTaken, а войти можно через Login.
+// Пароль длиннее auth.MaxPasswordLen байт даёт model.ErrPasswordTooLong,
+// занятый логин даёт model.ErrLoginTaken.
 func (s *Users) Register(ctx context.Context, login, password string) (string, error) {
 	if len(password) > auth.MaxPasswordLen {
 		return "", model.ErrPasswordTooLong

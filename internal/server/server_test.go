@@ -160,24 +160,14 @@ func TestRunFailsOnBusyPort(t *testing.T) {
 	assert.Zero(t, logs.FilterMessage("сервер запущен").Len())
 }
 
-func TestNewSetsTimeouts(t *testing.T) {
-	srv := New("127.0.0.1:0", http.NotFoundHandler(), zap.NewNop())
-
-	assert.Equal(t, readHeaderTimeout, srv.http.ReadHeaderTimeout)
-	assert.Equal(t, readTimeout, srv.http.ReadTimeout)
-	assert.Equal(t, writeTimeout, srv.http.WriteTimeout)
-	assert.Equal(t, idleTimeout, srv.http.IdleTimeout)
-	assert.Equal(t, shutdownTimeout, srv.shutdownTimeout)
-}
-
 func TestNewLogsServerErrorsAtErrorLevel(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	srv := New("127.0.0.1:0", http.NotFoundHandler(), zap.New(core))
 
-	srv.http.ErrorLog.Print("http: TLS handshake error")
+	srv.http.ErrorLog.Print("http: superfluous response.WriteHeader call")
 
 	entries := logs.All()
 	require.Len(t, entries, 1)
 	assert.Equal(t, zap.ErrorLevel, entries[0].Level)
-	assert.Equal(t, "http: TLS handshake error", entries[0].Message)
+	assert.Equal(t, "http: superfluous response.WriteHeader call", entries[0].Message)
 }

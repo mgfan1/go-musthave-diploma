@@ -27,13 +27,12 @@ var ErrNotRegistered = errors.New("заказ не зарегистрирова�
 
 // TooManyRequestsError возвращается, когда система расчёта отвечает 429.
 type TooManyRequestsError struct {
-	// RetryAfter хранит паузу из заголовка Retry-After, но не длиннее десяти
-	// минут. Если заголовка нет или его не удалось разобрать, пауза равна
-	// одной минуте.
+	// RetryAfter - пауза из заголовка Retry-After в секундах, не длиннее
+	// десяти минут. Без заголовка или с неразборчивым значением берётся минута.
 	RetryAfter time.Duration
 }
 
-// Error описывает ошибку вместе с запрошенной паузой.
+// Error сообщает, какую паузу просит система расчёта.
 func (e *TooManyRequestsError) Error() string {
 	return fmt.Sprintf("система расчёта просит паузу %s", e.RetryAfter)
 }
@@ -45,10 +44,10 @@ type Client struct {
 }
 
 // NewClient создаёт клиент системы расчёта с базовым адресом baseURL вида
-// http://host:port. На каждый запрос отводится пять секунд. Между запросами
-// клиент держит открытым по соединению на каждый воркер опроса.
+// http://host:port.
 func NewClient(baseURL string) *Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxConnsPerHost = workers
 	transport.MaxIdleConnsPerHost = workers
 
 	return &Client{
@@ -62,12 +61,9 @@ type orderResponse struct {
 	Accrual *model.Money `json:"accrual"`
 }
 
-// Order запрашивает расчёт по заказу number и переводит ответ в статусы
-// Гофермарта: REGISTERED и PROCESSING становятся PROCESSING, INVALID
-// и PROCESSED остаются как есть. При ответе 204 возвращает ErrNotRegistered,
-// при 429 возвращает *TooManyRequestsError. Прочие коды ответа, неизвестный
-// статус и сбои сети возвращаются обычной ошибкой: такой заказ стоит
-// опросить позже.
+// Order запрашивает расчёт по заказу number. REGISTERED приводится
+// к PROCESSING. На ответ 204 возвращает ErrNotRegistered, на 429
+// *TooManyRequestsError, на прочие сбои обычную ошибку.
 func (c *Client) Order(ctx context.Context, number string) (model.AccrualResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/orders/"+url.PathEscape(number), nil)
 	if err != nil {
@@ -89,7 +85,7 @@ func (c *Client) Order(ctx context.Context, number string) (model.AccrualResult,
 	case http.StatusNoContent:
 		return model.AccrualResult{}, ErrNotRegistered
 	case http.StatusTooManyRequests:
-		return model.AccrualResult{}, &TooManyRequestsError{RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
+		return model.AccrualResult{}, &TooManyRequestsError{RetryAfter: retryAfter(resp.Header.Get("Retry-After"))}
 	default:
 		return model.AccrualResult{}, fmt.Errorf("система расчёта ответила %s", resp.Status)
 	}
@@ -122,15 +118,10 @@ func orderStatus(s string) (model.OrderStatus, error) {
 	}
 }
 
-func retryAfter(header string, now time.Time) time.Duration {
-	header = strings.TrimSpace(header)
-
-	if seconds, err := strconv.Atoi(header); err == nil && seconds >= 0 {
-		return time.Duration(min(seconds, int(maxRetryAfter/time.Second))) * time.Second
+func retryAfter(header string) time.Duration {
+	seconds, err := strconv.Atoi(strings.TrimSpace(header))
+	if err != nil || seconds < 0 {
+		return defaultRetryAfter
 	}
-	if at, err := http.ParseTime(header); err == nil {
-		return min(max(at.Sub(now), 0), maxRetryAfter)
-	}
-
-	return defaultRetryAfter
+	return time.Duration(min(seconds, int(maxRetryAfter/time.Second))) * time.Second
 }

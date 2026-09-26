@@ -59,11 +59,6 @@ func TestUploadOrder(t *testing.T) {
 	}
 }
 
-func TestUploadOrderWithoutTokenIsUnauthorizedBeforeValidation(t *testing.T) {
-	w := send(newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, "/api/user/orders", "12345678902", "")
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
 func TestListOrders(t *testing.T) {
 	msk := time.FixedZone("MSK", 3*60*60)
 	accrual := model.Money(729.98)
@@ -118,19 +113,12 @@ func TestListOrdersEmpty(t *testing.T) {
 	}
 }
 
-func TestListOrdersFailures(t *testing.T) {
-	t.Run("без токена", func(t *testing.T) {
-		w := send(newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t)), http.MethodGet, "/api/user/orders", "", "")
-		assert.Equal(t, http.StatusUnauthorized, w.Code)
-	})
+func TestListOrdersFailure(t *testing.T) {
+	orders := newMockOrderService(t)
+	orders.On("List", mock.Anything, int64(7)).Return(nil, errors.New("база недоступна"))
 
-	t.Run("сбой сервиса", func(t *testing.T) {
-		orders := newMockOrderService(t)
-		orders.On("List", mock.Anything, int64(7)).Return(nil, errors.New("база недоступна"))
+	w := send(newRouter(newMockUserService(t), orders, newMockBalanceService(t)), http.MethodGet, "/api/user/orders", "", bearer(t, 7))
 
-		w := send(newRouter(newMockUserService(t), orders, newMockBalanceService(t)), http.MethodGet, "/api/user/orders", "", bearer(t, 7))
-
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
-	})
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
 }

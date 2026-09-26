@@ -28,8 +28,7 @@ func (g *gzipWriter) WriteHeader(status int) {
 	g.ResponseWriter.WriteHeader(status)
 }
 
-// Write пишет b в ответ, сжимая его, если так решил WriteHeader. Без явного
-// WriteHeader ответ уходит с кодом 200.
+// Write пишет b в ответ, сжимая его, если так решил WriteHeader.
 func (g *gzipWriter) Write(b []byte) (int, error) {
 	if !g.decided {
 		g.WriteHeader(http.StatusOK)

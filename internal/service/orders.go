@@ -8,13 +8,12 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
-// OrderRepository описывает хранилище заказов.
+// OrderRepository хранит заказы.
 type OrderRepository interface {
 	// CreateOrder сохраняет новый заказ в статусе NEW и возвращает владельца
-	// заказа и признак того, что заказ создан сейчас. Существующий заказ
-	// не меняет. Если пользователя нет, а номер ещё не загружен, возвращает
-	// model.ErrUserNotFound. Если номер уже загружен, наличие пользователя
-	// не проверяет.
+	// номера и признак того, что заказ создан сейчас. Существующий заказ
+	// не меняет. Если пользователя нет, а номер новый, возвращает
+	// model.ErrUserNotFound.
 	CreateOrder(ctx context.Context, userID int64, number string) (int64, bool, error)
 	// UserOrders возвращает заказы пользователя от новых к старым.
 	UserOrders(ctx context.Context, userID int64) ([]model.Order, error)
@@ -37,13 +36,11 @@ func NewOrders(repo OrderRepository) *Orders {
 	return &Orders{repo: repo}
 }
 
-// Upload принимает номер заказа number от пользователя userID. Возвращает
-// true, если заказ принят впервые, и false, если этот пользователь уже
-// загружал такой номер: повторная загрузка ничего не меняет. Если номер
-// не проходит проверку по алгоритму Луна, возвращает
-// model.ErrInvalidOrderNumber, а если его уже загрузил другой пользователь,
-// возвращает model.ErrOrderOwnedByOther. Если пользователя нет, а номер ещё
-// не загружен, возвращает model.ErrUserNotFound.
+// Upload принимает номер заказа number от пользователя userID и возвращает
+// true, если заказ новый, и false, если этот пользователь уже загружал такой
+// номер. Номер, не прошедший проверку Луна, даёт model.ErrInvalidOrderNumber,
+// номер другого пользователя даёт model.ErrOrderOwnedByOther. Ошибки хранилища
+// возвращаются как есть.
 func (s *Orders) Upload(ctx context.Context, userID int64, number string) (bool, error) {
 	if !luhn.Valid(number) {
 		return false, model.ErrInvalidOrderNumber
@@ -71,11 +68,9 @@ func (s *Orders) ClaimPending(ctx context.Context, limit int) ([]string, error) 
 	return s.repo.ClaimPendingOrders(ctx, limit)
 }
 
-// ApplyAccrual переносит в заказ number результат расчёта result. Начисление
-// сохраняется только вместе со статусом PROCESSED и попадает в баланс
-// в тот же момент, что и статус. Заказы в окончательных статусах
-// не меняются. Для статуса NEW и неизвестных статусов возвращает ошибку:
-// результатом расчёта они быть не могут.
+// ApplyAccrual переносит в заказ number результат расчёта. Начисление
+// сохраняется только вместе со статусом PROCESSED. Для NEW и неизвестных
+// статусов возвращает ошибку.
 func (s *Orders) ApplyAccrual(ctx context.Context, number string, result model.AccrualResult) error {
 	switch result.Status {
 	case model.StatusProcessed:

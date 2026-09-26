@@ -14,11 +14,10 @@ import (
 
 // CreateOrder сохраняет заказ number пользователя userID в статусе NEW
 // и возвращает владельца заказа и признак того, что заказ создан сейчас.
-// Если номер уже загружен, существующий заказ не меняется: его статус
-// и начисление остаются прежними, а владельцем возвращается тот, кто
-// загрузил номер первым. Если пользователя userID нет, а номер ещё
-// не загружен, возвращает model.ErrUserNotFound. Если номер уже загружен,
-// наличие пользователя не проверяется.
+// Уже загруженный номер не меняется, владельцем возвращается тот, кто
+// загрузил его первым, а наличие пользователя userID в этом случае
+// не проверяется. Если пользователя нет, а номер новый, возвращает
+// model.ErrUserNotFound.
 func (s *PGStorage) CreateOrder(ctx context.Context, userID int64, number string) (int64, bool, error) {
 	var ownerID int64
 	err := s.db.QueryRowContext(ctx,
@@ -53,7 +52,7 @@ func (s *PGStorage) UserOrders(ctx context.Context, userID int64) ([]model.Order
 		`SELECT number, status, accrual, uploaded_at
 		 FROM orders
 		 WHERE user_id = $1
-		 ORDER BY uploaded_at DESC`,
+		 ORDER BY uploaded_at DESC, id DESC`,
 		userID,
 	)
 	if err != nil {
@@ -77,11 +76,8 @@ func (s *PGStorage) UserOrders(ctx context.Context, userID int64) ([]model.Order
 }
 
 // ClaimPendingOrders выдаёт на опрос до limit заказов в статусах NEW
-// и PROCESSING и возвращает их номера. Первыми идут заказы, которые ещё
-// не опрашивались или опрашивались раньше остальных, а выданным заказам
-// сразу проставляется время опроса, поэтому следующая выдача достанется
-// другим заказам. Строки, которые в этот момент выдаёт другой запрос,
-// пропускаются, так что параллельные выдачи не пересекаются.
+// и PROCESSING, которые дольше остальных ждут опроса, и возвращает их
+// номера. Параллельные выдачи не пересекаются.
 func (s *PGStorage) ClaimPendingOrders(ctx context.Context, limit int) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`UPDATE orders SET polled_at = now()
@@ -115,11 +111,8 @@ func (s *PGStorage) ClaimPendingOrders(ctx context.Context, limit int) ([]string
 	return numbers, nil
 }
 
-// UpdateOrder записывает заказу number статус status и начисление accrual.
-// Оба поля меняются одним UPDATE, то есть атомарно: баланс, который
-// считается по начислениям обработанных заказов, видит статус PROCESSED
-// только вместе с суммой. Заказы в окончательных статусах INVALID
-// и PROCESSED не меняются.
+// UpdateOrder атомарно записывает заказу number статус status и начисление
+// accrual. Заказы в окончательных статусах INVALID и PROCESSED не меняются.
 func (s *PGStorage) UpdateOrder(ctx context.Context, number string, status model.OrderStatus, accrual *model.Money) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE orders SET status = $2, accrual = $3

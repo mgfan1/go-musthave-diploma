@@ -17,7 +17,7 @@ const (
 	workers      = 4
 )
 
-// Orders описывает очередь незавершённых заказов, которую разбирает Poller.
+// Orders - очередь незавершённых заказов, которую разбирает Poller.
 type Orders interface {
 	// ClaimPending выдаёт на опрос до limit незавершённых заказов
 	// и возвращает их номера.
@@ -32,17 +32,14 @@ type Fetcher interface {
 	Order(ctx context.Context, number string) (model.AccrualResult, error)
 }
 
-// Poller раз в секунду опрашивает систему расчёта по незавершённым заказам
-// и переносит результаты в заказы. За один проход он берёт до десяти заказов
-// и опрашивает их не больше чем в четыре запроса одновременно. Ответ 429
-// останавливает весь опрос на время из Retry-After: запросы, которые ещё
-// не начаты, не отправляются, а следующие проходы пропускаются.
+// Poller периодически опрашивает систему расчёта по незавершённым заказам
+// и переносит результаты в заказы. Ответ 429 приостанавливает весь опрос
+// на время из Retry-After.
 type Poller struct {
 	orders   Orders
 	fetcher  Fetcher
 	log      *zap.Logger
 	interval time.Duration
-	batch    int
 	workers  int
 
 	mu          sync.Mutex
@@ -57,13 +54,12 @@ func NewPoller(orders Orders, fetcher Fetcher, log *zap.Logger) *Poller {
 		fetcher:  fetcher,
 		log:      log,
 		interval: pollInterval,
-		batch:    batchSize,
 		workers:  workers,
 	}
 }
 
-// Run опрашивает систему расчёта раз в секунду, пока не отменён ctx.
-// Возвращается после того, как завершены все начатые запросы.
+// Run опрашивает систему расчёта, пока не отменён ctx, и возвращается,
+// когда начатые запросы завершены.
 func (p *Poller) Run(ctx context.Context) {
 	ticker := time.NewTicker(p.interval)
 	defer ticker.Stop()
@@ -83,7 +79,7 @@ func (p *Poller) tick(ctx context.Context) {
 		return
 	}
 
-	numbers, err := p.orders.ClaimPending(ctx, p.batch)
+	numbers, err := p.orders.ClaimPending(ctx, batchSize)
 	if err != nil {
 		p.warn(ctx, "не выбрал заказы для опроса", zap.Error(err))
 		return

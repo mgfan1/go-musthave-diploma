@@ -81,7 +81,7 @@ func TestLogin(t *testing.T) {
 }
 
 func TestCredentialsBadRequest(t *testing.T) {
-	bodies := []struct {
+	cases := []struct {
 		name string
 		body string
 	}{
@@ -96,39 +96,23 @@ func TestCredentialsBadRequest(t *testing.T) {
 	}
 
 	for _, path := range []string{"/api/user/register", "/api/user/login"} {
-		for _, b := range bodies {
-			t.Run(path+" "+b.name, func(t *testing.T) {
-				w := send(newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, path, b.body, "")
+		for _, c := range cases {
+			t.Run(path+" "+c.name, func(t *testing.T) {
+				w := send(newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, path, c.body, "")
 				assert.Equal(t, http.StatusBadRequest, w.Code)
 			})
 		}
 	}
 }
 
-func TestTooLongPasswordReachesService(t *testing.T) {
+func TestLoginTooLongPasswordIsUnauthorized(t *testing.T) {
 	password := strings.Repeat("a", auth.MaxPasswordLen+1)
-	body := `{"login":"gopher","password":"` + password + `"}`
 
-	cases := []struct {
-		name     string
-		method   string
-		path     string
-		err      error
-		wantCode int
-	}{
-		{"регистрация", "Register", "/api/user/register", model.ErrPasswordTooLong, http.StatusBadRequest},
-		{"вход", "Login", "/api/user/login", model.ErrInvalidCredentials, http.StatusUnauthorized},
-	}
+	users := newMockUserService(t)
+	users.On("Login", mock.Anything, "gopher", password).Return("", model.ErrInvalidCredentials)
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			users := newMockUserService(t)
-			users.On(c.method, mock.Anything, "gopher", password).Return("", c.err)
-
-			w := send(newRouter(users, newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, c.path, body, "")
-			assert.Equal(t, c.wantCode, w.Code)
-		})
-	}
+	w := send(newRouter(users, newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, "/api/user/login", `{"login":"gopher","password":"`+password+`"}`, "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestRegisterTokenOpensProtectedRoutes(t *testing.T) {

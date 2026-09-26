@@ -13,8 +13,7 @@ import (
 )
 
 // CreateUser сохраняет пользователя и возвращает его идентификатор.
-// Если логин уже занят, возвращает model.ErrLoginTaken: занятость
-// определяет уникальный индекс, а не предварительная проверка.
+// Если логин уже занят, возвращает model.ErrLoginTaken.
 func (s *PGStorage) CreateUser(ctx context.Context, login, passwordHash string) (int64, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx,

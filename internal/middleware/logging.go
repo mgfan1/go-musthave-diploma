@@ -14,12 +14,6 @@ type responseRecorder struct {
 	size   int
 }
 
-// Unwrap возвращает исходный ResponseWriter, чтобы http.ResponseController
-// мог добраться до его возможностей.
-func (r *responseRecorder) Unwrap() http.ResponseWriter {
-	return r.ResponseWriter
-}
-
 // WriteHeader запоминает код ответа status и передаёт его дальше.
 func (r *responseRecorder) WriteHeader(status int) {
 	r.status = status

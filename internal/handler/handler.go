@@ -11,7 +11,7 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
-// UserService описывает регистрацию и вход пользователей.
+// UserService регистрирует пользователей и выполняет вход.
 type UserService interface {
 	// Register создаёт пользователя и возвращает токен доступа. Возвращает
 	// model.ErrLoginTaken, если логин занят, и model.ErrPasswordTooLong,
@@ -22,19 +22,19 @@ type UserService interface {
 	Login(ctx context.Context, login, password string) (string, error)
 }
 
-// OrderService описывает приём и выдачу заказов пользователя.
+// OrderService принимает номера заказов и отдаёт заказы пользователя.
 type OrderService interface {
 	// Upload принимает номер заказа и возвращает true, если заказ новый,
 	// и false, если пользователь уже загружал этот номер. Возвращает
 	// model.ErrInvalidOrderNumber или model.ErrOrderOwnedByOther, если заказ
 	// принять нельзя, и model.ErrUserNotFound, если пользователя нет, а номер
-	// ещё не загружен.
+	// новый.
 	Upload(ctx context.Context, userID int64, number string) (bool, error)
 	// List возвращает заказы пользователя от новых к старым.
 	List(ctx context.Context, userID int64) ([]model.Order, error)
 }
 
-// BalanceService описывает баланс пользователя и списание баллов.
+// BalanceService отдаёт баланс пользователя и списывает баллы.
 type BalanceService interface {
 	// Get возвращает баланс пользователя.
 	Get(ctx context.Context, userID int64) (model.Balance, error)
@@ -56,10 +56,8 @@ type Handler struct {
 	log     *zap.Logger
 }
 
-// New создаёт обработчик API поверх сервисов пользователей users,
-// заказов orders и баланса balance. Сбои сервисов пишутся в log на уровне
-// Error вместе с методом и путём запроса и пользователем, если он известен,
-// а клиент получает 500 без подробностей.
+// New создаёт обработчик API поверх сервисов users, orders и balance.
+// Сбои сервисов пишутся в log, а клиент получает 500 без подробностей.
 func New(users UserService, orders OrderService, balance BalanceService, log *zap.Logger) *Handler {
 	return &Handler{users: users, orders: orders, balance: balance, log: log}
 }

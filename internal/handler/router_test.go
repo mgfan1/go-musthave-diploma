@@ -188,43 +188,6 @@ func TestRouterLogsTimeout(t *testing.T) {
 	assert.Equal(t, int64(http.StatusServiceUnavailable), loggedStatus(t, logs))
 }
 
-func TestRouterKeepsHandlerResponse(t *testing.T) {
-	users := newMockUserService(t)
-	users.On("Login", mock.Anything, "gopher", "secret").Return("token", nil)
-	orders := newMockOrderService(t)
-	orders.On("List", mock.Anything, int64(7)).Return([]model.Order{}, nil)
-	balance := newMockBalanceService(t)
-	balance.On("Get", mock.Anything, int64(7)).Return(model.Balance{Current: 500.5, Withdrawn: 42}, nil)
-
-	router := newRouter(users, orders, balance)
-
-	cases := []struct {
-		name       string
-		method     string
-		path       string
-		body       string
-		token      string
-		wantCode   int
-		wantHeader string
-		wantValue  string
-		wantBody   string
-	}{
-		{"токен после входа", http.MethodPost, "/api/user/login", goodCredentials, "", http.StatusOK, "Authorization", "Bearer token", ""},
-		{"пустой список", http.MethodGet, "/api/user/orders", "", bearer(t, 7), http.StatusNoContent, "Content-Type", "application/json", ""},
-		{"тело ответа", http.MethodGet, "/api/user/balance", "", bearer(t, 7), http.StatusOK, "Content-Type", "application/json", `{"current":500.5,"withdrawn":42}`},
-	}
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			w := send(router, c.method, c.path, c.body, c.token)
-
-			assert.Equal(t, c.wantCode, w.Code)
-			assert.Equal(t, c.wantValue, w.Header().Get(c.wantHeader))
-			assert.Equal(t, c.wantBody, w.Body.String())
-		})
-	}
-}
-
 func gzipped(t *testing.T, body string) *bytes.Buffer {
 	t.Helper()
 

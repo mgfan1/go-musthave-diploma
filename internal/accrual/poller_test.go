@@ -71,6 +71,7 @@ func TestPollerTickNothingToPoll(t *testing.T) {
 
 func TestPollerTickContinuesAfterApplyError(t *testing.T) {
 	p, orders, fetcher := newTestPoller(t)
+	p.workers = 1
 	result := model.AccrualResult{Status: model.StatusProcessing}
 
 	orders.On("ClaimPending", mock.Anything, batchSize).Return([]string{"1", "2"}, nil)

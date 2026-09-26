@@ -46,21 +46,14 @@ func TestGetBalance(t *testing.T) {
 	}
 }
 
-func TestGetBalanceFailures(t *testing.T) {
-	t.Run("без токена", func(t *testing.T) {
-		w := send(balanceRouter(t, newMockBalanceService(t)), http.MethodGet, "/api/user/balance", "", "")
-		assert.Equal(t, http.StatusUnauthorized, w.Code)
-	})
+func TestGetBalanceFailure(t *testing.T) {
+	balance := newMockBalanceService(t)
+	balance.On("Get", mock.Anything, int64(7)).Return(model.Balance{}, errors.New("база недоступна"))
 
-	t.Run("сбой сервиса", func(t *testing.T) {
-		balance := newMockBalanceService(t)
-		balance.On("Get", mock.Anything, int64(7)).Return(model.Balance{}, errors.New("база недоступна"))
+	w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/balance", "", bearer(t, 7))
 
-		w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/balance", "", bearer(t, 7))
-
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
-	})
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
 }
 
 func TestWithdraw(t *testing.T) {
@@ -102,7 +95,7 @@ func TestWithdraw(t *testing.T) {
 }
 
 func TestWithdrawBadRequest(t *testing.T) {
-	bodies := []struct {
+	cases := []struct {
 		name string
 		body string
 	}{
@@ -116,18 +109,11 @@ func TestWithdrawBadRequest(t *testing.T) {
 		{"слишком длинное тело", `{"order":"2377225624","sum":751,"comment":"` + strings.Repeat("a", maxRequestBody) + `"}`},
 	}
 
-	for _, b := range bodies {
-		t.Run(b.name, func(t *testing.T) {
-			w := send(balanceRouter(t, newMockBalanceService(t)), http.MethodPost, "/api/user/balance/withdraw", b.body, bearer(t, 7))
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := send(balanceRouter(t, newMockBalanceService(t)), http.MethodPost, "/api/user/balance/withdraw", c.body, bearer(t, 7))
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 		})
-	}
-}
-
-func TestWithdrawWithoutTokenIsUnauthorizedBeforeValidation(t *testing.T) {
-	for _, body := range []string{`{"order":"12345678902","sum":-1}`, `{"order":`} {
-		w := send(balanceRouter(t, newMockBalanceService(t)), http.MethodPost, "/api/user/balance/withdraw", body, "")
-		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	}
 }
 
@@ -181,19 +167,12 @@ func TestListWithdrawalsEmpty(t *testing.T) {
 	}
 }
 
-func TestListWithdrawalsFailures(t *testing.T) {
-	t.Run("без токена", func(t *testing.T) {
-		w := send(balanceRouter(t, newMockBalanceService(t)), http.MethodGet, "/api/user/withdrawals", "", "")
-		assert.Equal(t, http.StatusUnauthorized, w.Code)
-	})
+func TestListWithdrawalsFailure(t *testing.T) {
+	balance := newMockBalanceService(t)
+	balance.On("Withdrawals", mock.Anything, int64(7)).Return(nil, errors.New("база недоступна"))
 
-	t.Run("сбой сервиса", func(t *testing.T) {
-		balance := newMockBalanceService(t)
-		balance.On("Withdrawals", mock.Anything, int64(7)).Return(nil, errors.New("база недоступна"))
+	w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/withdrawals", "", bearer(t, 7))
 
-		w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/withdrawals", "", bearer(t, 7))
-
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
-		assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
-	})
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
 }

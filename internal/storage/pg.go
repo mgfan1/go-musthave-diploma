@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
-	"syscall"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -21,9 +20,7 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/migrations"
 )
 
-// PGStorage хранит пользователей, заказы и списания в PostgreSQL через
-// database/sql и реализует все хранилища пакета service. Суммы лежат
-// в numeric(12,2), и складывает и сравнивает их сама база.
+// PGStorage хранит пользователей, заказы и списания в PostgreSQL.
 type PGStorage struct {
 	db *sql.DB
 }
@@ -53,7 +50,7 @@ func retriablePG(err error) bool {
 		return true
 	}
 
-	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, driver.ErrBadConn)
+	return errors.Is(err, driver.ErrBadConn)
 }
 
 func retriableCode(code string) bool {

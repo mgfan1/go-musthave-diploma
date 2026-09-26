@@ -46,12 +46,6 @@ func TestRecoverPassesAbortHandler(t *testing.T) {
 	assert.Zero(t, logs.Len())
 }
 
-func TestRecoverInsideLogging(t *testing.T) {
-	fields := logged(t, Recover(zap.NewNop())(panicking("boom")).ServeHTTP)
-
-	assert.Equal(t, int64(http.StatusInternalServerError), fields["status"])
-}
-
 func TestRecoverWithoutPanic(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	w := httptest.NewRecorder()

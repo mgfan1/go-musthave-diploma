@@ -274,12 +274,9 @@ func TestPGUpdateOrderAccrualIsInBalanceAtOnce(t *testing.T) {
 	amount := model.Money(729.98)
 	require.NoError(t, s.UpdateOrder(ctx, "12345678903", model.StatusProcessed, &amount))
 
-	var balance string
-	err := db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(accrual), 0)::text FROM orders WHERE user_id = $1 AND status = 'PROCESSED'`, alice,
-	).Scan(&balance)
+	b, err := s.Balance(ctx, alice)
 	require.NoError(t, err)
-	assert.Equal(t, "729.98", balance)
+	assert.Equal(t, model.Balance{Current: 729.98}, b)
 }
 
 func TestPGUpdateOrderIsAtomicForReaders(t *testing.T) {

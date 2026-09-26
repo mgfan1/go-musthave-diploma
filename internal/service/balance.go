@@ -7,22 +7,19 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
-// BalanceRepository описывает хранилище счетов баллов.
+// BalanceRepository хранит списания и считает баланс.
 type BalanceRepository interface {
 	// Balance возвращает баланс пользователя.
 	Balance(ctx context.Context, userID int64) (model.Balance, error)
-	// Withdraw атомарно проверяет баланс и списывает баллы. Если баллов
-	// не хватает, возвращает model.ErrInsufficientFunds, а если после
-	// округления до копеек сумма нулевая или не помещается в хранилище,
-	// возвращает model.ErrInvalidWithdrawSum. Если пользователя нет,
-	// возвращает model.ErrUserNotFound.
+	// Withdraw атомарно проверяет баланс и сохраняет списание. Возвращает
+	// model.ErrInsufficientFunds, model.ErrInvalidWithdrawSum или
+	// model.ErrUserNotFound, если списание невозможно.
 	Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error
 	// UserWithdrawals возвращает списания пользователя от новых к старым.
 	UserWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error)
 }
 
-// Balance показывает пользователю его баланс и списания и списывает баллы
-// в счёт оплаты новых заказов.
+// Balance показывает баланс и списания пользователя и списывает баллы.
 type Balance struct {
 	repo BalanceRepository
 }
@@ -38,11 +35,9 @@ func (s *Balance) Get(ctx context.Context, userID int64) (model.Balance, error) 
 }
 
 // Withdraw списывает sum баллов пользователя userID в счёт заказа order.
-// Если сумма не положительная, возвращает model.ErrInvalidWithdrawSum,
-// если номер заказа не проходит проверку по алгоритму Луна, возвращает
-// model.ErrInvalidOrderNumber, а если баллов не хватает, возвращает
-// model.ErrInsufficientFunds. Хватает ли баллов, решает хранилище. Если
-// пользователя нет, возвращает model.ErrUserNotFound.
+// Неположительная сумма даёт model.ErrInvalidWithdrawSum, номер, не прошедший
+// проверку Луна, даёт model.ErrInvalidOrderNumber. Остальные ошибки приходят
+// из хранилища.
 func (s *Balance) Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error {
 	if sum <= 0 {
 		return model.ErrInvalidWithdrawSum
