@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -42,19 +43,13 @@ func (s *PGStorage) Balance(ctx context.Context, userID int64) (model.Balance, e
 }
 
 // Withdraw списывает sum баллов пользователя userID в счёт заказа order.
-// Сумма один раз округляется до копеек без ограничения разрядности, и
-// с балансом сравнивается то же значение, что попадает в списание: при
-// балансе 100 списание 100.004 проходит и сохраняется как 100.00, а сумма
-// больше баланса получает отказ, даже если не помещается в numeric(12,2).
-// Округлённую сумму запрос считает в материализованном CTE: иначе
-// PostgreSQL может ещё при планировании привести её к numeric(12,2)
-// и упасть на переполнении раньше проверки баланса. Проверка и запись идут
-// одним запросом в транзакции, которая первым делом блокирует строку
-// пользователя: параллельные списания одного пользователя выполняются
-// по очереди, и каждое видит баланс с учётом предыдущих. Если баллов
-// не хватает, возвращает model.ErrInsufficientFunds. Если после округления
-// сумма нулевая или баллов хватает, но сумма не помещается в numeric(12,2),
-// возвращает model.ErrInvalidWithdrawSum.
+// Сумма округляется до копеек, и с балансом сравнивается уже округлённая сумма.
+// Параллельные списания одного пользователя выполняются по очереди. Если баллов
+// не хватает, возвращает model.ErrInsufficientFunds, если сумма после округления
+// нулевая или не помещается в numeric(12,2), model.ErrInvalidWithdrawSum, а если
+// пользователя нет, model.ErrUserNotFound. CTE с суммой материализован, иначе
+// приведение типа выполнится при планировании и огромная сумма даст ошибку
+// переполнения вместо ErrInsufficientFunds.
 func (s *PGStorage) Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -63,7 +58,10 @@ func (s *PGStorage) Withdraw(ctx context.Context, userID int64, order string, su
 	defer func() { _ = tx.Rollback() }()
 
 	var id int64
-	err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&id)
+	err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id = $1 FOR NO KEY UPDATE`, userID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.ErrUserNotFound
+	}
 	if err != nil {
 		return fmt.Errorf("не заблокировал счёт пользователя: %w", err)
 	}

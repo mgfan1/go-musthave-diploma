@@ -19,7 +19,12 @@ func HashPassword(password string) (string, error) {
 	return string(hash), nil
 }
 
-// CheckPassword сообщает, подходит ли пароль к bcrypt-хешу.
+// CheckPassword сообщает, подходит ли пароль к bcrypt-хешу. Пароль длиннее
+// MaxPasswordLen не подходит ни к какому хешу: при сравнении bcrypt молча
+// обрезал бы его до MaxPasswordLen байт.
 func CheckPassword(hash, password string) bool {
+	if len(password) > MaxPasswordLen {
+		return false
+	}
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }

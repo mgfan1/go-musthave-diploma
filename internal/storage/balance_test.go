@@ -94,6 +94,14 @@ func TestPGWithdrawInsufficientFunds(t *testing.T) {
 	assert.Equal(t, "100.00", storedAmounts(t, db, alice), "отказ не оставляет следов в базе")
 }
 
+func TestPGWithdrawUnknownUser(t *testing.T) {
+	s, db := newPGStorage(t)
+	alice := insertUser(t, db, "alice")
+
+	err := s.Withdraw(t.Context(), alice+1, "2377225624", 1)
+	require.ErrorIs(t, err, model.ErrUserNotFound)
+}
+
 func TestPGWithdrawRoundsToKopecks(t *testing.T) {
 	cases := []struct {
 		name    string

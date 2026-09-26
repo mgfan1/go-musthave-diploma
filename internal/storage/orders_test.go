@@ -56,6 +56,18 @@ func TestPGCreateOrder(t *testing.T) {
 	assert.Equal(t, orderRow{userID: alice, status: "NEW"}, readOrder(t, db, "12345678903"))
 }
 
+func TestPGCreateOrderUnknownUser(t *testing.T) {
+	s, db := newPGStorage(t)
+	alice := insertUser(t, db, "alice")
+
+	_, _, err := s.CreateOrder(t.Context(), alice+1, "12345678903")
+	require.ErrorIs(t, err, model.ErrUserNotFound)
+
+	var count int
+	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*) FROM orders`).Scan(&count))
+	assert.Zero(t, count)
+}
+
 func TestPGCreateOrderKeepsProcessedOrder(t *testing.T) {
 	ctx := t.Context()
 	s, db := newPGStorage(t)

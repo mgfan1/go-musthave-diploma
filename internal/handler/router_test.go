@@ -85,6 +85,15 @@ func TestRouterUnknownPath(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestRouterRecoversPanic(t *testing.T) {
+	users := newMockUserService(t)
+	users.On("Register", mock.Anything, "gopher", "secret").Run(func(mock.Arguments) { panic("boom") })
+
+	w := send(newRouter(users, newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, "/api/user/register", goodCredentials, "")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
+}
+
 func gzipped(t *testing.T, body string) *bytes.Buffer {
 	t.Helper()
 

@@ -39,8 +39,11 @@ func checkCredentialsCase(t *testing.T, method, path string, c credentialsCase) 
 		return
 	}
 	assert.Empty(t, w.Header().Get("Authorization"))
-	if c.wantCode == http.StatusInternalServerError {
+	switch c.wantCode {
+	case http.StatusInternalServerError:
 		assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
+	case http.StatusBadRequest:
+		assert.Equal(t, "неверный формат запроса\n", w.Body.String())
 	}
 }
 
@@ -50,6 +53,7 @@ func TestRegister(t *testing.T) {
 	cases := []credentialsCase{
 		{name: "успешная регистрация", token: "token", wantCode: http.StatusOK},
 		{name: "логин занят", err: model.ErrLoginTaken, wantCode: http.StatusConflict},
+		{name: "слишком длинный пароль", err: model.ErrPasswordTooLong, wantCode: http.StatusBadRequest},
 		{name: "сбой сервиса", err: boom, wantCode: http.StatusInternalServerError},
 	}
 
@@ -87,7 +91,7 @@ func TestCredentialsBadRequest(t *testing.T) {
 		{"нет логина", `{"password":"secret"}`},
 		{"нет пароля", `{"login":"gopher"}`},
 		{"пустые поля", `{"login":"","password":""}`},
-		{"пароль длиннее 72 байт", `{"login":"gopher","password":"` + strings.Repeat("a", auth.MaxPasswordLen+1) + `"}`},
+		{"управляющий символ в логине", `{"login":"go\u0000pher","password":"secret"}`},
 		{"слишком длинное тело", `{"login":"` + strings.Repeat("a", maxRequestBody) + `","password":"secret"}`},
 	}
 
@@ -98,6 +102,32 @@ func TestCredentialsBadRequest(t *testing.T) {
 				assert.Equal(t, http.StatusBadRequest, w.Code)
 			})
 		}
+	}
+}
+
+func TestTooLongPasswordReachesService(t *testing.T) {
+	password := strings.Repeat("a", auth.MaxPasswordLen+1)
+	body := `{"login":"gopher","password":"` + password + `"}`
+
+	cases := []struct {
+		name     string
+		method   string
+		path     string
+		err      error
+		wantCode int
+	}{
+		{"регистрация", "Register", "/api/user/register", model.ErrPasswordTooLong, http.StatusBadRequest},
+		{"вход", "Login", "/api/user/login", model.ErrInvalidCredentials, http.StatusUnauthorized},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			users := newMockUserService(t)
+			users.On(c.method, mock.Anything, "gopher", password).Return("", c.err)
+
+			w := send(newRouter(users, newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, c.path, body, "")
+			assert.Equal(t, c.wantCode, w.Code)
+		})
 	}
 }
 

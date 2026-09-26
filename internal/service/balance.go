@@ -12,7 +12,10 @@ type BalanceRepository interface {
 	// Balance возвращает баланс пользователя.
 	Balance(ctx context.Context, userID int64) (model.Balance, error)
 	// Withdraw атомарно проверяет баланс и списывает баллы. Если баллов
-	// не хватает, возвращает model.ErrInsufficientFunds.
+	// не хватает, возвращает model.ErrInsufficientFunds, а если после
+	// округления до копеек сумма нулевая или не помещается в хранилище,
+	// возвращает model.ErrInvalidWithdrawSum. Если пользователя нет,
+	// возвращает model.ErrUserNotFound.
 	Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error
 	// UserWithdrawals возвращает списания пользователя от новых к старым.
 	UserWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error)
@@ -38,7 +41,8 @@ func (s *Balance) Get(ctx context.Context, userID int64) (model.Balance, error) 
 // Если сумма не положительная, возвращает model.ErrInvalidWithdrawSum,
 // если номер заказа не проходит проверку по алгоритму Луна, возвращает
 // model.ErrInvalidOrderNumber, а если баллов не хватает, возвращает
-// model.ErrInsufficientFunds. Хватает ли баллов, решает хранилище.
+// model.ErrInsufficientFunds. Хватает ли баллов, решает хранилище. Если
+// пользователя нет, возвращает model.ErrUserNotFound.
 func (s *Balance) Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error {
 	if sum <= 0 {
 		return model.ErrInvalidWithdrawSum

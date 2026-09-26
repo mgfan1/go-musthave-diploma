@@ -36,6 +36,8 @@ func (h *Handler) uploadOrder(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "неверный номер заказа", http.StatusUnprocessableEntity)
 	case errors.Is(err, model.ErrOrderOwnedByOther):
 		http.Error(w, "номер заказа уже загружен другим пользователем", http.StatusConflict)
+	case errors.Is(err, model.ErrUserNotFound):
+		unauthorized(w)
 	case err != nil:
 		h.internalError(w, r, "не принял заказ", err)
 	case created:

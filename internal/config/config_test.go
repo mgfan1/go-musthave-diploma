@@ -1,8 +1,8 @@
 package config
 
 import (
+	"errors"
 	"flag"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,26 +11,18 @@ import (
 
 const testDSN = "postgres://gophermart:gophermart@localhost:5432/gophermart"
 
-func withArgs(t *testing.T, args ...string) {
+func clearEnv(t *testing.T) {
 	t.Helper()
 
 	for _, name := range []string{"RUN_ADDRESS", "DATABASE_URI", "ACCRUAL_SYSTEM_ADDRESS", "JWT_SECRET"} {
 		t.Setenv(name, "")
 	}
-
-	oldArgs, oldFlags := os.Args, flag.CommandLine
-	t.Cleanup(func() {
-		os.Args, flag.CommandLine = oldArgs, oldFlags
-	})
-
-	os.Args = append([]string{"gophermart"}, args...)
-	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 }
 
 func TestParseDefaults(t *testing.T) {
-	withArgs(t, "-d", testDSN)
+	clearEnv(t)
 
-	cfg, err := Parse()
+	cfg, err := Parse([]string{"-d", testDSN})
 	require.NoError(t, err)
 	assert.Equal(t, "localhost:8080", cfg.Addr)
 	assert.Equal(t, testDSN, cfg.DatabaseURI)
@@ -39,9 +31,9 @@ func TestParseDefaults(t *testing.T) {
 }
 
 func TestParseFlags(t *testing.T) {
-	withArgs(t, "-a", ":9090", "-d", testDSN, "-r", "http://localhost:8081", "-s", "секрет из флага")
+	clearEnv(t)
 
-	cfg, err := Parse()
+	cfg, err := Parse([]string{"-a", ":9090", "-d", testDSN, "-r", "http://localhost:8081", "-s", "секрет из флага"})
 	require.NoError(t, err)
 	assert.Equal(t, Config{
 		Addr:           ":9090",
@@ -52,13 +44,13 @@ func TestParseFlags(t *testing.T) {
 }
 
 func TestParseEnvBeatsFlag(t *testing.T) {
-	withArgs(t, "-a", ":9090", "-d", "postgres://flag", "-r", "http://flag:1", "-s", "флаг")
+	clearEnv(t)
 	t.Setenv("RUN_ADDRESS", "localhost:8081")
 	t.Setenv("DATABASE_URI", testDSN)
 	t.Setenv("ACCRUAL_SYSTEM_ADDRESS", "http://localhost:8082")
 	t.Setenv("JWT_SECRET", "секрет из окружения")
 
-	cfg, err := Parse()
+	cfg, err := Parse([]string{"-a", ":9090", "-d", "postgres://flag", "-r", "http://flag:1", "-s", "флаг"})
 	require.NoError(t, err)
 	assert.Equal(t, Config{
 		Addr:           "localhost:8081",
@@ -69,28 +61,68 @@ func TestParseEnvBeatsFlag(t *testing.T) {
 }
 
 func TestParseEmptyEnvKeepsFlag(t *testing.T) {
-	withArgs(t, "-a", ":9090", "-d", testDSN)
-	t.Setenv("RUN_ADDRESS", "")
+	clearEnv(t)
 
-	cfg, err := Parse()
+	cfg, err := Parse([]string{"-a", ":9090", "-d", testDSN})
 	require.NoError(t, err)
 	assert.Equal(t, ":9090", cfg.Addr)
 }
 
 func TestParseRequiresDatabase(t *testing.T) {
-	withArgs(t)
+	clearEnv(t)
 
-	_, err := Parse()
+	_, err := Parse(nil)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "DATABASE_URI")
 }
 
 func TestParseRequiresSecret(t *testing.T) {
-	withArgs(t, "-d", testDSN, "-s", "")
+	clearEnv(t)
 
-	_, err := Parse()
+	_, err := Parse([]string{"-d", testDSN, "-s", ""})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "JWT_SECRET")
+}
+
+func TestParseFlagErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		help bool
+	}{
+		{name: "неизвестный флаг", args: []string{"-d", testDSN, "-x"}},
+		{name: "флаг без значения", args: []string{"-d"}},
+		{name: "справка", args: []string{"-h"}, help: true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			clearEnv(t)
+
+			_, err := Parse(c.args)
+			require.Error(t, err)
+			assert.Equal(t, c.help, errors.Is(err, flag.ErrHelp))
+		})
+	}
+}
+
+func TestParseRejectsBadAccrualAddress(t *testing.T) {
+	t.Run("из флага", func(t *testing.T) {
+		clearEnv(t)
+
+		_, err := Parse([]string{"-d", testDSN, "-r", "htp://localhost:8081"})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "ACCRUAL_SYSTEM_ADDRESS")
+	})
+
+	t.Run("из окружения", func(t *testing.T) {
+		clearEnv(t)
+		t.Setenv("ACCRUAL_SYSTEM_ADDRESS", "ftp://accrual.example")
+
+		_, err := Parse([]string{"-d", testDSN})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "ACCRUAL_SYSTEM_ADDRESS")
+	})
 }
 
 func TestParseDefaultSecret(t *testing.T) {
@@ -108,10 +140,10 @@ func TestParseDefaultSecret(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			withArgs(t, append([]string{"-d", testDSN}, c.args...)...)
+			clearEnv(t)
 			t.Setenv("JWT_SECRET", c.env)
 
-			cfg, err := Parse()
+			cfg, err := Parse(append([]string{"-d", testDSN}, c.args...))
 			require.NoError(t, err)
 			assert.Equal(t, c.want, cfg.UsesDefaultSecret())
 		})
@@ -120,20 +152,34 @@ func TestParseDefaultSecret(t *testing.T) {
 
 func TestNormalizeURL(t *testing.T) {
 	cases := []struct {
-		name string
-		in   string
-		want string
+		name    string
+		in      string
+		want    string
+		wantErr bool
 	}{
-		{"без схемы", "localhost:8081", "http://localhost:8081"},
-		{"со слешем в конце", "http://localhost:8081/", "http://localhost:8081"},
-		{"https не трогаем", "https://accrual.example", "https://accrual.example"},
-		{"пробелы по краям", "  localhost:8081  ", "http://localhost:8081"},
-		{"пусто", "", ""},
+		{name: "без схемы", in: "localhost:8081", want: "http://localhost:8081"},
+		{name: "со слешем в конце", in: "http://localhost:8081/", want: "http://localhost:8081"},
+		{name: "https не трогаем", in: "https://accrual.example", want: "https://accrual.example"},
+		{name: "пробелы по краям", in: "  localhost:8081  ", want: "http://localhost:8081"},
+		{name: "пусто", in: "", want: ""},
+		{name: "опечатка в схеме", in: "htp://localhost:8081", wantErr: true},
+		{name: "чужая схема", in: "ftp://accrual.example", wantErr: true},
+		{name: "нет хоста", in: "http://", wantErr: true},
+		{name: "нет хоста, только порт", in: "http://:8081", wantErr: true},
+		{name: "пробел в хосте", in: "local host:8081", wantErr: true},
+		{name: "мусор", in: "%%%", wantErr: true},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			assert.Equal(t, c.want, normalizeURL(c.in))
+			got, err := normalizeURL(c.in)
+			if c.wantErr {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, "-r")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, c.want, got)
 		})
 	}
 }

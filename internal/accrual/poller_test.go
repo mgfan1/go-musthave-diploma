@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
@@ -151,6 +152,27 @@ func TestPollerLimitsConcurrentRequests(t *testing.T) {
 
 	assert.Equal(t, workers, peak, "одновременно идёт не больше запросов, чем воркеров")
 	fetcher.AssertNumberOfCalls(t, "Order", len(numbers))
+}
+
+func TestPollerTickStopsOnCancel(t *testing.T) {
+	core, logs := observer.New(zap.WarnLevel)
+	orders := newMockOrders(t)
+	fetcher := newMockFetcher(t)
+	p := NewPoller(orders, fetcher, zap.New(core))
+	p.workers = 1
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	orders.On("ClaimPending", mock.Anything, batchSize).Return([]string{"1", "2", "3"}, nil)
+	fetcher.On("Order", mock.Anything, mock.Anything).
+		Run(func(mock.Arguments) { cancel() }).
+		Return(model.AccrualResult{}, context.Canceled)
+
+	p.tick(ctx)
+
+	fetcher.AssertNumberOfCalls(t, "Order", 1)
+	assert.Zero(t, logs.Len(), "после отмены опрос не пишет предупреждений")
 }
 
 func TestPollerRunStopsOnCancel(t *testing.T) {

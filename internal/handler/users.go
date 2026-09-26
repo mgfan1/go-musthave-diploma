@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
+	"unicode"
 
-	"github.com/mgfan1/go-musthave-diploma/internal/auth"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
@@ -19,7 +20,7 @@ func readCredentials(r *http.Request) (credentials, bool) {
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
 		return c, false
 	}
-	return c, c.Login != "" && c.Password != "" && len(c.Password) <= auth.MaxPasswordLen
+	return c, c.Login != "" && !strings.ContainsFunc(c.Login, unicode.IsControl) && c.Password != ""
 }
 
 func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
@@ -32,6 +33,10 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 	token, err := h.users.Register(r.Context(), c.Login, c.Password)
 	if errors.Is(err, model.ErrLoginTaken) {
 		http.Error(w, "логин уже занят", http.StatusConflict)
+		return
+	}
+	if errors.Is(err, model.ErrPasswordTooLong) {
+		http.Error(w, "неверный формат запроса", http.StatusBadRequest)
 		return
 	}
 	if err != nil {

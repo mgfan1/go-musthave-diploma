@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
@@ -13,7 +16,8 @@ import (
 // и возвращает владельца заказа и признак того, что заказ создан сейчас.
 // Если номер уже загружен, существующий заказ не меняется: его статус
 // и начисление остаются прежними, а владельцем возвращается тот, кто
-// загрузил номер первым.
+// загрузил номер первым. Если пользователя userID нет, возвращает
+// model.ErrUserNotFound.
 func (s *PGStorage) CreateOrder(ctx context.Context, userID int64, number string) (int64, bool, error) {
 	var ownerID int64
 	err := s.db.QueryRowContext(ctx,
@@ -24,6 +28,10 @@ func (s *PGStorage) CreateOrder(ctx context.Context, userID int64, number string
 	).Scan(&ownerID)
 	if err == nil {
 		return ownerID, true, nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.ForeignKeyViolation {
+		return 0, false, model.ErrUserNotFound
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, false, fmt.Errorf("не сохранил заказ: %w", err)

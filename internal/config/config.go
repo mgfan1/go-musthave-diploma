@@ -5,14 +5,16 @@ package config
 import (
 	"errors"
 	"flag"
+	"fmt"
+	"net/url"
 	"strings"
 )
 
 const defaultJWTSecret = "gophermart-local-secret"
 
 // Config описывает настройки сервиса в том виде, в каком их вернул Parse.
-// Parse проверяет только, что заданы строка подключения к базе и секрет
-// токенов, и нормализует адрес системы расчёта. Остальные значения
+// Parse проверяет, что заданы строка подключения к базе и секрет токенов,
+// а адрес системы расчёта нормализует и проверяет. Остальные значения
 // передаются как есть.
 type Config struct {
 	// Addr задаёт адрес, который слушает HTTP-сервер: флаг -a или
@@ -24,7 +26,8 @@ type Config struct {
 	DatabaseURI string
 	// AccrualAddress задаёт базовый адрес системы расчёта начислений: флаг -r
 	// или ACCRUAL_SYSTEM_ADDRESS. Parse дописывает схему http://, если её
-	// нет, и убирает слеш в конце. Пустой адрес допустим, тогда заказы
+	// нет, и убирает слеш в конце. Адрес со схемой, отличной от http и https,
+	// или без хоста Parse отвергает. Пустой адрес допустим, тогда заказы
 	// не опрашиваются.
 	AccrualAddress string
 	// JWTSecret задаёт секрет подписи токенов доступа HS256: флаг -s или
@@ -39,16 +42,22 @@ func (c Config) UsesDefaultSecret() bool {
 	return c.JWTSecret == defaultJWTSecret
 }
 
-// Parse читает флаги и переменные окружения и возвращает готовую конфигурацию.
-// Возвращает ошибку, если не задана строка подключения к базе или секрет токенов.
-func Parse() (Config, error) {
+// Parse разбирает флаги из args и переменные окружения и возвращает готовую
+// конфигурацию. args передаются без имени программы, обычно os.Args[1:].
+// Возвращает ошибку разбора флагов (для -h это flag.ErrHelp), а также ошибку,
+// если не задана строка подключения к базе или секрет токенов либо адрес
+// системы расчёта не является http(s)-адресом.
+func Parse(args []string) (Config, error) {
 	var cfg Config
 
-	flag.StringVar(&cfg.Addr, "a", "localhost:8080", "адрес и порт запуска сервиса")
-	flag.StringVar(&cfg.DatabaseURI, "d", "", "строка подключения к базе данных")
-	flag.StringVar(&cfg.AccrualAddress, "r", "", "адрес системы расчёта начислений")
-	flag.StringVar(&cfg.JWTSecret, "s", defaultJWTSecret, "секрет подписи токенов доступа")
-	flag.Parse()
+	fs := flag.NewFlagSet("gophermart", flag.ContinueOnError)
+	fs.StringVar(&cfg.Addr, "a", "localhost:8080", "адрес и порт запуска сервиса")
+	fs.StringVar(&cfg.DatabaseURI, "d", "", "строка подключения к базе данных")
+	fs.StringVar(&cfg.AccrualAddress, "r", "", "адрес системы расчёта начислений")
+	fs.StringVar(&cfg.JWTSecret, "s", defaultJWTSecret, "секрет подписи токенов доступа")
+	if err := fs.Parse(args); err != nil {
+		return cfg, err
+	}
 
 	envString("RUN_ADDRESS", &cfg.Addr)
 	envString("DATABASE_URI", &cfg.DatabaseURI)
@@ -62,18 +71,29 @@ func Parse() (Config, error) {
 		return cfg, errors.New("не задан секрет токенов: флаг -s или JWT_SECRET")
 	}
 
-	cfg.AccrualAddress = normalizeURL(cfg.AccrualAddress)
+	addr, err := normalizeURL(cfg.AccrualAddress)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.AccrualAddress = addr
 
 	return cfg, nil
 }
 
-func normalizeURL(addr string) string {
-	addr = strings.TrimRight(strings.TrimSpace(addr), "/")
+func normalizeURL(addr string) (string, error) {
+	addr = strings.TrimSpace(addr)
 	if addr == "" {
-		return ""
+		return "", nil
 	}
 	if !strings.Contains(addr, "://") {
 		addr = "http://" + addr
 	}
-	return addr
+	addr = strings.TrimRight(addr, "/")
+
+	u, err := url.Parse(addr)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return "", fmt.Errorf("неверный адрес системы расчёта %q: флаг -r или ACCRUAL_SYSTEM_ADDRESS", addr)
+	}
+
+	return addr, nil
 }

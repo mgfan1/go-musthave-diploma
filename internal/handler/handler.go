@@ -12,16 +12,21 @@ import (
 
 // UserService описывает регистрацию и вход пользователей.
 type UserService interface {
-	// Register создаёт пользователя и возвращает токен доступа.
+	// Register создаёт пользователя и возвращает токен доступа. Возвращает
+	// model.ErrLoginTaken, если логин занят, и model.ErrPasswordTooLong,
+	// если пароль слишком длинный.
 	Register(ctx context.Context, login, password string) (string, error)
 	// Login проверяет пару логин и пароль и возвращает токен доступа.
+	// Для неверной пары возвращает model.ErrInvalidCredentials.
 	Login(ctx context.Context, login, password string) (string, error)
 }
 
 // OrderService описывает приём и выдачу заказов пользователя.
 type OrderService interface {
 	// Upload принимает номер заказа и возвращает true, если заказ новый,
-	// и false, если пользователь уже загружал этот номер.
+	// и false, если пользователь уже загружал этот номер. Возвращает
+	// model.ErrInvalidOrderNumber, model.ErrOrderOwnedByOther
+	// или model.ErrUserNotFound, если заказ принять нельзя.
 	Upload(ctx context.Context, userID int64, number string) (bool, error)
 	// List возвращает заказы пользователя от новых к старым.
 	List(ctx context.Context, userID int64) ([]model.Order, error)
@@ -32,8 +37,9 @@ type BalanceService interface {
 	// Get возвращает баланс пользователя.
 	Get(ctx context.Context, userID int64) (model.Balance, error)
 	// Withdraw списывает баллы в счёт заказа. Возвращает
-	// model.ErrInvalidWithdrawSum, model.ErrInvalidOrderNumber
-	// или model.ErrInsufficientFunds, если списание невозможно.
+	// model.ErrInvalidWithdrawSum, model.ErrInvalidOrderNumber,
+	// model.ErrInsufficientFunds или model.ErrUserNotFound, если списание
+	// невозможно.
 	Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error
 	// Withdrawals возвращает списания пользователя от новых к старым.
 	Withdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error)
@@ -50,7 +56,7 @@ type Handler struct {
 
 // New создаёт обработчик API поверх сервисов пользователей users,
 // заказов orders и баланса balance. Сбои сервисов пишутся в log на уровне
-// Warn вместе с методом и путём запроса и пользователем, если он известен,
+// Error вместе с методом и путём запроса и пользователем, если он известен,
 // а клиент получает 500 без подробностей.
 func New(users UserService, orders OrderService, balance BalanceService, log *zap.Logger) *Handler {
 	return &Handler{users: users, orders: orders, balance: balance, log: log}
@@ -59,9 +65,14 @@ func New(users UserService, orders OrderService, balance BalanceService, log *za
 func currentUser(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	userID, ok := auth.UserID(r.Context())
 	if !ok {
-		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		unauthorized(w)
 	}
 	return userID, ok
+}
+
+func unauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 }
 
 func requestFields(r *http.Request) []zap.Field {
@@ -76,6 +87,6 @@ func requestFields(r *http.Request) []zap.Field {
 }
 
 func (h *Handler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
-	h.log.Warn(msg, append(requestFields(r), zap.Error(err))...)
+	h.log.Error(msg, append(requestFields(r), zap.Error(err))...)
 	http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 }

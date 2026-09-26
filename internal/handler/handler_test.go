@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -21,6 +22,13 @@ func observedRouter(users UserService, orders OrderService, balance BalanceServi
 	return router, logs
 }
 
+func assertUnauthorized(t *testing.T, w *httptest.ResponseRecorder) {
+	t.Helper()
+
+	assert.Equal(t, "Bearer", w.Header().Get("WWW-Authenticate"))
+	assert.Equal(t, http.StatusText(http.StatusUnauthorized)+"\n", w.Body.String())
+}
+
 func TestInternalErrorLogsRequest(t *testing.T) {
 	boom := errors.New("база недоступна")
 
@@ -34,7 +42,7 @@ func TestInternalErrorLogsRequest(t *testing.T) {
 
 		entries := logs.FilterMessage("не прочитал заказы").All()
 		require.Len(t, entries, 1)
-		assert.Equal(t, zap.WarnLevel, entries[0].Level)
+		assert.Equal(t, zap.ErrorLevel, entries[0].Level)
 
 		fields := entries[0].ContextMap()
 		assert.Equal(t, http.MethodGet, fields["method"])
@@ -53,6 +61,7 @@ func TestInternalErrorLogsRequest(t *testing.T) {
 
 		entries := logs.FilterMessage("не зарегистрировал пользователя").All()
 		require.Len(t, entries, 1)
+		assert.Equal(t, zap.ErrorLevel, entries[0].Level)
 
 		fields := entries[0].ContextMap()
 		assert.Equal(t, http.MethodPost, fields["method"])

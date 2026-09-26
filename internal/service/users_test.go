@@ -88,9 +88,10 @@ func TestLoginTokenIssueFails(t *testing.T) {
 func TestRegisterTooLongPassword(t *testing.T) {
 	repo := newMockUserRepository(t)
 
-	_, err := NewUsers(repo, auth.NewTokens("секрет", time.Hour)).
+	token, err := NewUsers(repo, auth.NewTokens("секрет", time.Hour)).
 		Register(t.Context(), "gopher", strings.Repeat("a", auth.MaxPasswordLen+1))
-	assert.Error(t, err)
+	require.ErrorIs(t, err, model.ErrPasswordTooLong)
+	assert.Empty(t, token)
 }
 
 func TestLogin(t *testing.T) {
@@ -101,6 +102,11 @@ func TestLogin(t *testing.T) {
 	require.NoError(t, err)
 	gopher := model.User{ID: 7, Login: "gopher", PasswordHash: hash}
 
+	longPassword := strings.Repeat("a", auth.MaxPasswordLen)
+	longHash, err := auth.HashPassword(longPassword)
+	require.NoError(t, err)
+	longGopher := model.User{ID: 7, Login: "gopher", PasswordHash: longHash}
+
 	cases := []struct {
 		name     string
 		password string
@@ -110,6 +116,8 @@ func TestLogin(t *testing.T) {
 	}{
 		{"верный пароль", password, gopher, nil, nil},
 		{"неверный пароль", "чужой пароль", gopher, nil, model.ErrInvalidCredentials},
+		{"пароль предельной длины", longPassword, longGopher, nil, nil},
+		{"пароль длиннее предела с верным началом", longPassword + "b", longGopher, nil, model.ErrInvalidCredentials},
 		{"неизвестный логин", password, model.User{}, model.ErrUserNotFound, model.ErrInvalidCredentials},
 		{"сбой хранилища", password, model.User{}, boom, boom},
 	}

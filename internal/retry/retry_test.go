@@ -88,15 +88,53 @@ func TestDoStopsOnCanceledContext(t *testing.T) {
 
 	time.AfterFunc(20*time.Millisecond, cancel)
 
+	boom := errors.New("сбой")
 	calls := 0
 	start := time.Now()
 
 	err := r.Do(ctx, always, func() error {
 		calls++
-		return errors.New("сбой")
+		return boom
 	})
 
 	require.ErrorIs(t, err, context.Canceled)
+	assert.ErrorIs(t, err, boom, "причина последней попытки сохраняется")
 	assert.Equal(t, 1, calls, "после отмены контекста операция не повторяется")
 	assert.Less(t, time.Since(start), time.Second, "пауза должна прерваться отменой")
+}
+
+func TestDoCanceledDuringAttempt(t *testing.T) {
+	r := New(zap.NewNop(), time.Hour)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	boom := errors.New("сбой")
+	calls := 0
+
+	err := r.Do(ctx, always, func() error {
+		calls++
+		cancel()
+		return boom
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.ErrorIs(t, err, boom, "причина последней попытки сохраняется")
+	assert.Equal(t, 1, calls)
+}
+
+func TestDoCanceledBeforeFirstAttempt(t *testing.T) {
+	r := New(zap.NewNop(), time.Hour)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	calls := 0
+	err := r.Do(ctx, always, func() error {
+		calls++
+		return nil
+	})
+
+	assert.Equal(t, context.Canceled, err)
+	assert.Zero(t, calls, "с отменённым контекстом операция не запускается")
 }

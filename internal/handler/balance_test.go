@@ -79,6 +79,7 @@ func TestWithdraw(t *testing.T) {
 		{name: "номер не проходит проверку Луна", body: `{"order":"2377225624","sum":751}`, sum: 751, err: model.ErrInvalidOrderNumber, wantCode: http.StatusUnprocessableEntity},
 		{name: "отрицательная сумма", body: `{"order":"2377225624","sum":-751}`, sum: -751, err: model.ErrInvalidWithdrawSum, wantCode: http.StatusBadRequest},
 		{name: "нет суммы", body: `{"order":"2377225624"}`, sum: 0, err: model.ErrInvalidWithdrawSum, wantCode: http.StatusBadRequest},
+		{name: "пользователя из токена нет", body: `{"order":"2377225624","sum":751}`, sum: 751, err: model.ErrUserNotFound, wantCode: http.StatusUnauthorized},
 		{name: "сбой сервиса", body: `{"order":"2377225624","sum":751}`, sum: 751, err: boom, wantCode: http.StatusInternalServerError},
 	}
 
@@ -90,8 +91,11 @@ func TestWithdraw(t *testing.T) {
 			w := send(balanceRouter(t, balance), http.MethodPost, "/api/user/balance/withdraw", c.body, bearer(t, 7))
 
 			assert.Equal(t, c.wantCode, w.Code)
-			if c.wantCode == http.StatusInternalServerError {
+			switch c.wantCode {
+			case http.StatusInternalServerError:
 				assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
+			case http.StatusUnauthorized:
+				assertUnauthorized(t, w)
 			}
 		})
 	}

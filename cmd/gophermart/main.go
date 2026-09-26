@@ -5,6 +5,8 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -24,7 +26,13 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/internal/storage"
 )
 
-const tokenTTL = 24 * time.Hour
+const (
+	tokenTTL = 24 * time.Hour
+
+	maxOpenConns    = 10
+	maxIdleConns    = maxOpenConns
+	connMaxIdleTime = 4 * time.Minute
+)
 
 func main() {
 	logger, err := zap.NewProduction()
@@ -34,7 +42,7 @@ func main() {
 	}
 
 	code := 0
-	if err := run(logger); err != nil {
+	if err := run(logger, os.Args[1:]); err != nil {
 		logger.Error("сервис остановлен с ошибкой", zap.Error(err))
 		code = 1
 	}
@@ -43,8 +51,11 @@ func main() {
 	os.Exit(code)
 }
 
-func run(logger *zap.Logger) error {
-	cfg, err := config.Parse()
+func run(logger *zap.Logger, args []string) error {
+	cfg, err := config.Parse(args)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -54,6 +65,7 @@ func run(logger *zap.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	context.AfterFunc(ctx, stop)
 
 	db, err := sql.Open("pgx", cfg.DatabaseURI)
 	if err != nil {
@@ -61,9 +73,9 @@ func run(logger *zap.Logger) error {
 	}
 	defer db.Close()
 
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxIdleTime(4 * time.Minute)
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
 
 	store, err := storage.NewPGStorage(ctx, db, logger.With(zap.String("component", "storage")))
 	if err != nil {

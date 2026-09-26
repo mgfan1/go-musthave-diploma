@@ -3,8 +3,11 @@ package accrual
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -159,6 +162,57 @@ func TestClientOrderTemporaryFailures(t *testing.T) {
 	})
 }
 
+func TestClientReusesConnections(t *testing.T) {
+	const rounds = 5
+
+	var (
+		mu       sync.Mutex
+		arrived  int
+		release  = make(chan struct{})
+		newConns atomic.Int32
+	)
+
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		arrived++
+		wait := release
+		if arrived == workers {
+			close(release)
+			release = make(chan struct{})
+			arrived = 0
+		}
+		mu.Unlock()
+
+		select {
+		case <-wait:
+		case <-time.After(time.Second):
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			newConns.Add(1)
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	client := NewClient(srv.URL)
+	for range rounds {
+		var wg sync.WaitGroup
+		for range workers {
+			wg.Go(func() {
+				_, err := client.Order(t.Context(), "12345678903")
+				assert.ErrorIs(t, err, ErrNotRegistered)
+			})
+		}
+		wg.Wait()
+	}
+
+	assert.Less(t, int(newConns.Load()), 2*workers,
+		"воркеры опроса должны переиспользовать соединения между проходами")
+}
+
 func TestOrderStatus(t *testing.T) {
 	cases := []struct {
 		accrual string
@@ -199,6 +253,11 @@ func TestRetryAfter(t *testing.T) {
 		{"ноль", "0", 0},
 		{"дата в будущем", now.Add(2 * time.Minute).Format(http.TimeFormat), 2 * time.Minute},
 		{"дата в прошлом", now.Add(-time.Minute).Format(http.TimeFormat), 0},
+		{"ровно предел", "600", maxRetryAfter},
+		{"секунд больше предела", "3600", maxRetryAfter},
+		{"огромное число секунд", "10000000000", maxRetryAfter},
+		{"дата позже предела", now.Add(time.Hour).Format(http.TimeFormat), maxRetryAfter},
+		{"дата в далёком будущем", now.AddDate(100, 0, 0).Format(http.TimeFormat), maxRetryAfter},
 		{"нет заголовка", "", defaultRetryAfter},
 		{"мусор", "скоро", defaultRetryAfter},
 		{"отрицательное число", "-5", defaultRetryAfter},

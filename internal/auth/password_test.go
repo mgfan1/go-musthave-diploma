@@ -35,3 +35,12 @@ func TestHashPasswordLength(t *testing.T) {
 	_, err = HashPassword(strings.Repeat("a", MaxPasswordLen+1))
 	assert.ErrorIs(t, err, bcrypt.ErrPasswordTooLong)
 }
+
+func TestCheckPasswordTooLong(t *testing.T) {
+	password := strings.Repeat("a", MaxPasswordLen)
+	hash, err := HashPassword(password)
+	require.NoError(t, err)
+
+	assert.True(t, CheckPassword(hash, password))
+	assert.False(t, CheckPassword(hash, password+"b"), "пароль не должен совпадать по первым MaxPasswordLen байтам")
+}

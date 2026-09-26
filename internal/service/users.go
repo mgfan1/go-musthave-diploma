@@ -39,11 +39,16 @@ func NewUsers(repo UserRepository, tokens TokenIssuer) *Users {
 }
 
 // Register создаёт пользователя и сразу выпускает для него токен доступа.
-// Если логин занят, возвращает model.ErrLoginTaken. Если токен выпустить
-// не удалось, возвращает ошибку, но пользователь уже сохранён: повторная
-// регистрация с тем же логином получит model.ErrLoginTaken, а войти
-// можно через Login.
+// Если пароль длиннее auth.MaxPasswordLen байт, возвращает
+// model.ErrPasswordTooLong, а если логин занят, model.ErrLoginTaken.
+// Если токен выпустить не удалось, возвращает ошибку, но пользователь уже
+// сохранён: повторная регистрация с тем же логином получит
+// model.ErrLoginTaken, а войти можно через Login.
 func (s *Users) Register(ctx context.Context, login, password string) (string, error) {
+	if len(password) > auth.MaxPasswordLen {
+		return "", model.ErrPasswordTooLong
+	}
+
 	hash, err := auth.HashPassword(password)
 	if err != nil {
 		return "", err
@@ -58,8 +63,8 @@ func (s *Users) Register(ctx context.Context, login, password string) (string, e
 }
 
 // Login проверяет пару логин и пароль и выпускает токен доступа.
-// Для неизвестного логина и для неверного пароля возвращает одну и ту же
-// ошибку model.ErrInvalidCredentials.
+// Для неизвестного логина и для неверного пароля, в том числе слишком
+// длинного, возвращает одну и ту же ошибку model.ErrInvalidCredentials.
 func (s *Users) Login(ctx context.Context, login, password string) (string, error) {
 	user, err := s.repo.UserByLogin(ctx, login)
 	if errors.Is(err, model.ErrUserNotFound) {

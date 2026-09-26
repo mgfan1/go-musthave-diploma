@@ -18,6 +18,7 @@ import (
 const (
 	requestTimeout    = 5 * time.Second
 	defaultRetryAfter = time.Minute
+	maxRetryAfter     = 10 * time.Minute
 )
 
 // ErrNotRegistered возвращается, когда система расчёта отвечает 204: заказ
@@ -26,8 +27,9 @@ var ErrNotRegistered = errors.New("заказ не зарегистрирова�
 
 // TooManyRequestsError возвращается, когда система расчёта отвечает 429.
 type TooManyRequestsError struct {
-	// RetryAfter хранит паузу из заголовка Retry-After. Если заголовка нет
-	// или его не удалось разобрать, пауза равна одной минуте.
+	// RetryAfter хранит паузу из заголовка Retry-After, но не длиннее десяти
+	// минут. Если заголовка нет или его не удалось разобрать, пауза равна
+	// одной минуте.
 	RetryAfter time.Duration
 }
 
@@ -43,9 +45,16 @@ type Client struct {
 }
 
 // NewClient создаёт клиент системы расчёта с базовым адресом baseURL вида
-// http://host:port. На каждый запрос отводится пять секунд.
+// http://host:port. На каждый запрос отводится пять секунд. Между запросами
+// клиент держит открытым по соединению на каждый воркер опроса.
 func NewClient(baseURL string) *Client {
-	return &Client{baseURL: baseURL, http: &http.Client{Timeout: requestTimeout}}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConnsPerHost = workers
+
+	return &Client{
+		baseURL: baseURL,
+		http:    &http.Client{Timeout: requestTimeout, Transport: transport},
+	}
 }
 
 type orderResponse struct {
@@ -117,10 +126,10 @@ func retryAfter(header string, now time.Time) time.Duration {
 	header = strings.TrimSpace(header)
 
 	if seconds, err := strconv.Atoi(header); err == nil && seconds >= 0 {
-		return time.Duration(seconds) * time.Second
+		return time.Duration(min(seconds, int(maxRetryAfter/time.Second))) * time.Second
 	}
 	if at, err := http.ParseTime(header); err == nil {
-		return max(at.Sub(now), 0)
+		return min(max(at.Sub(now), 0), maxRetryAfter)
 	}
 
 	return defaultRetryAfter

@@ -3,6 +3,7 @@ package retry
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
@@ -24,9 +25,15 @@ func New(log *zap.Logger, delays ...time.Duration) *Retrier {
 }
 
 // Do выполняет op и повторяет её после каждой паузы, пока retriable признаёт
-// ошибку временной. Возвращает ошибку последней попытки или ошибку контекста,
-// если ctx отменён во время ожидания.
+// ошибку временной. Возвращает ошибку последней попытки. Если ctx отменён
+// между попытками, возвращает ошибку контекста вместе с ошибкой последней
+// попытки, обе доступны через errors.Is. Если ctx отменён ещё до первой
+// попытки, op не вызывается и возвращается ctx.Err().
 func (r *Retrier) Do(ctx context.Context, retriable func(error) bool, op func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	err := op()
 
 	for i, delay := range r.delays {
@@ -35,7 +42,7 @@ func (r *Retrier) Do(ctx context.Context, retriable func(error) bool, op func() 
 		}
 
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return fmt.Errorf("%w: %w", ctx.Err(), err)
 		}
 
 		r.log.Warn("повторная попытка", zap.Int("attempt", i+1), zap.Duration("delay", delay), zap.Error(err))
@@ -43,7 +50,7 @@ func (r *Retrier) Do(ctx context.Context, retriable func(error) bool, op func() 
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("%w: %w", ctx.Err(), err)
 		}
 
 		err = op()

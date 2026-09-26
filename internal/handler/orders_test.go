@@ -32,6 +32,7 @@ func TestUploadOrder(t *testing.T) {
 		{name: "номер загружен другим пользователем", body: "12345678903", number: "12345678903", err: model.ErrOrderOwnedByOther, wantCode: http.StatusConflict},
 		{name: "номер не проходит проверку Луна", body: "12345678902", number: "12345678902", err: model.ErrInvalidOrderNumber, wantCode: http.StatusUnprocessableEntity},
 		{name: "буквы вместо цифр", body: "abc", number: "abc", err: model.ErrInvalidOrderNumber, wantCode: http.StatusUnprocessableEntity},
+		{name: "пользователя из токена нет", body: "12345678903", number: "12345678903", err: model.ErrUserNotFound, wantCode: http.StatusUnauthorized},
 		{name: "сбой сервиса", body: "12345678903", number: "12345678903", err: boom, wantCode: http.StatusInternalServerError},
 		{name: "пустое тело", body: "", wantCode: http.StatusBadRequest},
 		{name: "одни пробелы", body: " \r\n", wantCode: http.StatusBadRequest},
@@ -48,8 +49,11 @@ func TestUploadOrder(t *testing.T) {
 			w := send(newRouter(newMockUserService(t), orders, newMockBalanceService(t)), http.MethodPost, "/api/user/orders", c.body, bearer(t, 7))
 
 			assert.Equal(t, c.wantCode, w.Code)
-			if c.wantCode == http.StatusInternalServerError {
+			switch c.wantCode {
+			case http.StatusInternalServerError:
 				assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
+			case http.StatusUnauthorized:
+				assertUnauthorized(t, w)
 			}
 		})
 	}

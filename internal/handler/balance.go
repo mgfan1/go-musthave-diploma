@@ -61,6 +61,8 @@ func (h *Handler) withdraw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "неверный номер заказа", http.StatusUnprocessableEntity)
 	case errors.Is(err, model.ErrInsufficientFunds):
 		http.Error(w, "на счету недостаточно средств", http.StatusPaymentRequired)
+	case errors.Is(err, model.ErrUserNotFound):
+		unauthorized(w)
 	case err != nil:
 		h.internalError(w, r, "не списал баллы", err)
 	default:
