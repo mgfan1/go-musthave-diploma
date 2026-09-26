@@ -32,7 +32,7 @@ func checkCredentialsCase(t *testing.T, method, path string, c credentialsCase) 
 	users := mocks.NewUserService(t)
 	users.On(method, mock.Anything, "gopher", "secret").Return(c.token, c.err)
 
-	w := send(newRouter(users), http.MethodPost, path, goodCredentials, "")
+	w := send(newRouter(users, mocks.NewOrderService(t)), http.MethodPost, path, goodCredentials, "")
 
 	assert.Equal(t, c.wantCode, w.Code)
 	if c.wantCode == http.StatusOK {
@@ -94,7 +94,7 @@ func TestCredentialsBadRequest(t *testing.T) {
 	for _, path := range []string{"/api/user/register", "/api/user/login"} {
 		for _, b := range bodies {
 			t.Run(path+" "+b.name, func(t *testing.T) {
-				w := send(newRouter(mocks.NewUserService(t)), http.MethodPost, path, b.body, "")
+				w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t)), http.MethodPost, path, b.body, "")
 				assert.Equal(t, http.StatusBadRequest, w.Code)
 			})
 		}
@@ -109,7 +109,7 @@ func TestRegisterTokenOpensProtectedRoutes(t *testing.T) {
 	users := mocks.NewUserService(t)
 	users.On("Register", mock.Anything, "gopher", "secret").Return(token, nil)
 
-	router := New(users, zap.NewNop()).Router(zap.NewNop(), tokens)
+	router := New(users, mocks.NewOrderService(t), zap.NewNop()).Router(zap.NewNop(), tokens)
 
 	reg := send(router, http.MethodPost, "/api/user/register", goodCredentials, "")
 	require.Equal(t, http.StatusOK, reg.Code)

@@ -26,8 +26,8 @@ func (h *Handler) Router(log *zap.Logger, tokens middleware.TokenParser) chi.Rou
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Auth(tokens))
 
-			r.Post("/orders", notImplemented)
-			r.Get("/orders", notImplemented)
+			r.Post("/orders", h.uploadOrder)
+			r.Get("/orders", h.listOrders)
 			r.Get("/balance", notImplemented)
 			r.Post("/balance/withdraw", notImplemented)
 			r.Get("/withdrawals", notImplemented)

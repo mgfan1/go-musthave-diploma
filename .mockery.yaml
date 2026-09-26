@@ -10,6 +10,8 @@ packages:
   github.com/mgfan1/go-musthave-diploma/internal/handler:
     interfaces:
       UserService:
+      OrderService:
   github.com/mgfan1/go-musthave-diploma/internal/service:
     interfaces:
       UserRepository:
+      OrderRepository:

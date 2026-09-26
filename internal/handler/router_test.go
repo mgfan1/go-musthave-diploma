@@ -17,8 +17,17 @@ import (
 
 const testSecret = "секрет для тестов"
 
-func newRouter(users UserService) http.Handler {
-	return New(users, zap.NewNop()).Router(zap.NewNop(), auth.NewTokens(testSecret, time.Hour))
+func newRouter(users UserService, orders OrderService) http.Handler {
+	return New(users, orders, zap.NewNop()).Router(zap.NewNop(), auth.NewTokens(testSecret, time.Hour))
+}
+
+func bearer(t *testing.T, userID int64) string {
+	t.Helper()
+
+	token, err := auth.NewTokens(testSecret, time.Hour).Issue(userID)
+	require.NoError(t, err)
+
+	return "Bearer " + token
 }
 
 func send(router http.Handler, method, path, body, authHeader string) *httptest.ResponseRecorder {
@@ -44,34 +53,50 @@ func TestProtectedRoutesRequireToken(t *testing.T) {
 		{http.MethodGet, "/api/user/withdrawals"},
 	}
 
-	valid, err := auth.NewTokens(testSecret, time.Hour).Issue(7)
-	require.NoError(t, err)
 	foreign, err := auth.NewTokens("чужой секрет", time.Hour).Issue(7)
 	require.NoError(t, err)
 
-	cases := []struct {
+	headers := []struct {
 		name   string
 		header string
-		want   int
 	}{
-		{"без токена", "", http.StatusUnauthorized},
-		{"чужая подпись", "Bearer " + foreign, http.StatusUnauthorized},
-		{"действительный токен", "Bearer " + valid, http.StatusNotImplemented},
+		{"без токена", ""},
+		{"чужая подпись", "Bearer " + foreign},
 	}
 
-	router := newRouter(mocks.NewUserService(t))
+	router := newRouter(mocks.NewUserService(t), mocks.NewOrderService(t))
 
 	for _, rt := range routes {
-		for _, c := range cases {
-			t.Run(rt.method+" "+rt.path+" "+c.name, func(t *testing.T) {
-				w := send(router, rt.method, rt.path, "12345678903", c.header)
-				assert.Equal(t, c.want, w.Code)
+		for _, h := range headers {
+			t.Run(rt.method+" "+rt.path+" "+h.name, func(t *testing.T) {
+				w := send(router, rt.method, rt.path, "12345678902", h.header)
+				assert.Equal(t, http.StatusUnauthorized, w.Code)
 			})
 		}
 	}
 }
 
+func TestNotImplementedRoutes(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/user/balance"},
+		{http.MethodPost, "/api/user/balance/withdraw"},
+		{http.MethodGet, "/api/user/withdrawals"},
+	}
+
+	router := newRouter(mocks.NewUserService(t), mocks.NewOrderService(t))
+
+	for _, rt := range routes {
+		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
+			w := send(router, rt.method, rt.path, "", bearer(t, 7))
+			assert.Equal(t, http.StatusNotImplemented, w.Code)
+		})
+	}
+}
+
 func TestRouterUnknownPath(t *testing.T) {
-	w := send(newRouter(mocks.NewUserService(t)), http.MethodGet, "/api/user/unknown", "", "")
+	w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t)), http.MethodGet, "/api/user/unknown", "", "")
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
