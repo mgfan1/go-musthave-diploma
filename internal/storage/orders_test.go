@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -158,6 +159,172 @@ func TestPGUserOrders(t *testing.T) {
 	assert.Nil(t, orders[2].Accrual)
 	assert.Equal(t, model.StatusNew, orders[2].Status)
 	assert.True(t, base.Equal(orders[2].UploadedAt))
+}
+
+func insertOrder(t *testing.T, db *sql.DB, number string, userID int64, status string, accrual any, uploadedAt time.Time) {
+	t.Helper()
+
+	_, err := db.ExecContext(t.Context(),
+		`INSERT INTO orders (number, user_id, status, accrual, uploaded_at) VALUES ($1, $2, $3, $4, $5)`,
+		number, userID, status, accrual, uploadedAt)
+	require.NoError(t, err)
+}
+
+func TestPGClaimPendingOrders(t *testing.T) {
+	ctx := t.Context()
+	s, db := newPGStorage(t)
+
+	alice := insertUser(t, db, "alice")
+	base := time.Now().Add(-time.Hour)
+
+	insertOrder(t, db, "1", alice, "NEW", nil, base)
+	insertOrder(t, db, "2", alice, "PROCESSING", nil, base.Add(time.Minute))
+	insertOrder(t, db, "3", alice, "NEW", nil, base.Add(2*time.Minute))
+	insertOrder(t, db, "4", alice, "PROCESSED", 10, base)
+	insertOrder(t, db, "5", alice, "INVALID", nil, base)
+
+	first, err := s.ClaimPendingOrders(ctx, 2)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"1", "2"}, first, "сначала самые старые из неопрошенных")
+
+	second, err := s.ClaimPendingOrders(ctx, 2)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"3", "1"}, second, "неопрошенный заказ идёт раньше уже опрошенных")
+
+	all, err := s.ClaimPendingOrders(ctx, 10)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"1", "2", "3"}, all, "заказы в окончательных статусах не опрашиваются")
+}
+
+func TestPGClaimPendingOrdersSkipsLockedRows(t *testing.T) {
+	ctx := t.Context()
+	s, db := newPGStorage(t)
+
+	alice := insertUser(t, db, "alice")
+	insertOrder(t, db, "1", alice, "NEW", nil, time.Now().Add(-time.Minute))
+	insertOrder(t, db, "2", alice, "NEW", nil, time.Now())
+
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(ctx, `SELECT number FROM orders WHERE number = '1' FOR UPDATE`)
+	require.NoError(t, err)
+
+	numbers, err := s.ClaimPendingOrders(ctx, 10)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"2"}, numbers, "заказ, который держит другая выдача, пропускается без ожидания")
+}
+
+func TestPGUpdateOrder(t *testing.T) {
+	amount := model.Money(729.98)
+	other := model.Money(1000)
+
+	cases := []struct {
+		name        string
+		status      string
+		accrual     any
+		newStatus   model.OrderStatus
+		newAccrual  *model.Money
+		wantStatus  string
+		wantAccrual sql.NullString
+	}{
+		{"NEW в PROCESSING", "NEW", nil, model.StatusProcessing, nil, "PROCESSING", sql.NullString{}},
+		{"NEW сразу в PROCESSED", "NEW", nil, model.StatusProcessed, &amount, "PROCESSED", sql.NullString{String: "729.98", Valid: true}},
+		{"PROCESSING в INVALID", "PROCESSING", nil, model.StatusInvalid, nil, "INVALID", sql.NullString{}},
+		{"PROCESSED без начисления", "PROCESSING", nil, model.StatusProcessed, nil, "PROCESSED", sql.NullString{}},
+		{"PROCESSED не откатывается в PROCESSING", "PROCESSED", 729.98, model.StatusProcessing, nil, "PROCESSED", sql.NullString{String: "729.98", Valid: true}},
+		{"PROCESSED не получает второе начисление", "PROCESSED", 729.98, model.StatusProcessed, &other, "PROCESSED", sql.NullString{String: "729.98", Valid: true}},
+		{"INVALID окончательный", "INVALID", nil, model.StatusProcessed, &other, "INVALID", sql.NullString{}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, db := newPGStorage(t)
+			alice := insertUser(t, db, "alice")
+			insertOrder(t, db, "12345678903", alice, c.status, c.accrual, time.Now())
+
+			require.NoError(t, s.UpdateOrder(t.Context(), "12345678903", c.newStatus, c.newAccrual))
+
+			want := orderRow{userID: alice, status: c.wantStatus, accrual: c.wantAccrual}
+			assert.Equal(t, want, readOrder(t, db, "12345678903"))
+		})
+	}
+}
+
+func TestPGUpdateOrderAccrualIsInBalanceAtOnce(t *testing.T) {
+	ctx := t.Context()
+	s, db := newPGStorage(t)
+
+	alice := insertUser(t, db, "alice")
+	insertOrder(t, db, "12345678903", alice, "PROCESSING", nil, time.Now())
+
+	amount := model.Money(729.98)
+	require.NoError(t, s.UpdateOrder(ctx, "12345678903", model.StatusProcessed, &amount))
+
+	var balance string
+	err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(accrual), 0)::text FROM orders WHERE user_id = $1 AND status = 'PROCESSED'`, alice,
+	).Scan(&balance)
+	require.NoError(t, err)
+	assert.Equal(t, "729.98", balance)
+}
+
+func TestPGUpdateOrderIsAtomicForReaders(t *testing.T) {
+	ctx := t.Context()
+	s, db := newPGStorage(t)
+
+	alice := insertUser(t, db, "alice")
+
+	const count = 20
+	numbers := make([]string, 0, count)
+	for i := range count {
+		number := strconv.Itoa(1000 + i)
+		insertOrder(t, db, number, alice, "PROCESSING", nil, time.Now())
+		numbers = append(numbers, number)
+	}
+
+	stop := make(chan struct{})
+	var checks, broken int
+	var readErr error
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for {
+			var consistent bool
+			err := db.QueryRowContext(ctx,
+				`SELECT COALESCE(SUM(accrual), 0) = count(*) * 1.01
+				 FROM orders WHERE user_id = $1 AND status = 'PROCESSED'`, alice,
+			).Scan(&consistent)
+			if err != nil {
+				readErr = err
+				return
+			}
+			checks++
+			if !consistent {
+				broken++
+			}
+
+			select {
+			case <-stop:
+				return
+			default:
+			}
+		}
+	})
+
+	amount := model.Money(1.01)
+	for _, number := range numbers {
+		if err := s.UpdateOrder(ctx, number, model.StatusProcessed, &amount); err != nil {
+			t.Errorf("не обновил заказ %s: %v", number, err)
+		}
+	}
+	close(stop)
+	wg.Wait()
+
+	require.NoError(t, readErr)
+	assert.Positive(t, checks)
+	assert.Zero(t, broken, "статус PROCESSED не должен быть виден без начисления")
 }
 
 func TestPGUserOrdersEmpty(t *testing.T) {

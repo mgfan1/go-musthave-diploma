@@ -1,5 +1,5 @@
 // Gophermart запускает сервис накопительной системы лояльности: HTTP API
-// пользователей поверх PostgreSQL.
+// пользователей поверх PostgreSQL и фоновый опрос системы расчёта начислений.
 package main
 
 import (
@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 
+	"github.com/mgfan1/go-musthave-diploma/internal/accrual"
 	"github.com/mgfan1/go-musthave-diploma/internal/auth"
 	"github.com/mgfan1/go-musthave-diploma/internal/config"
 	"github.com/mgfan1/go-musthave-diploma/internal/handler"
@@ -69,9 +71,21 @@ func run(logger *zap.Logger) error {
 	users := service.NewUsers(store, tokens)
 	orders := service.NewOrders(store)
 
+	var wg sync.WaitGroup
+	if cfg.AccrualAddress == "" {
+		logger.Warn("не задан адрес системы расчёта начислений, заказы не будут опрашиваться")
+	} else {
+		poller := accrual.NewPoller(orders, accrual.NewClient(cfg.AccrualAddress), logger.With(zap.String("component", "accrual")))
+		wg.Go(func() { poller.Run(ctx) })
+	}
+
 	api := handler.New(users, orders, logger.With(zap.String("component", "handler")))
 	router := api.Router(logger.With(zap.String("component", "middleware")), tokens)
 	srv := server.New(cfg.Addr, router, logger.With(zap.String("component", "server")))
 
-	return srv.Run(ctx)
+	err = srv.Run(ctx)
+	stop()
+	wg.Wait()
+
+	return err
 }

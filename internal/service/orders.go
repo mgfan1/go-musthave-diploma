@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/luhn"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
@@ -15,9 +16,16 @@ type OrderRepository interface {
 	CreateOrder(ctx context.Context, userID int64, number string) (int64, bool, error)
 	// UserOrders возвращает заказы пользователя от новых к старым.
 	UserOrders(ctx context.Context, userID int64) ([]model.Order, error)
+	// ClaimPendingOrders выдаёт на опрос до limit незавершённых заказов,
+	// которые дольше остальных не опрашивались, и возвращает их номера.
+	ClaimPendingOrders(ctx context.Context, limit int) ([]string, error)
+	// UpdateOrder атомарно записывает статус и начисление незавершённого
+	// заказа. Заказы в окончательных статусах не меняет.
+	UpdateOrder(ctx context.Context, number string, status model.OrderStatus, accrual *model.Money) error
 }
 
-// Orders принимает номера заказов от пользователей и отдаёт их списки.
+// Orders принимает номера заказов от пользователей, отдаёт их списки
+// и переносит в заказы результаты расчёта начислений.
 type Orders struct {
 	repo OrderRepository
 }
@@ -52,4 +60,26 @@ func (s *Orders) Upload(ctx context.Context, userID int64, number string) (bool,
 // List возвращает заказы пользователя userID от новых к старым.
 func (s *Orders) List(ctx context.Context, userID int64) ([]model.Order, error) {
 	return s.repo.UserOrders(ctx, userID)
+}
+
+// ClaimPending выдаёт фоновому опросу до limit незавершённых заказов
+// и возвращает их номера.
+func (s *Orders) ClaimPending(ctx context.Context, limit int) ([]string, error) {
+	return s.repo.ClaimPendingOrders(ctx, limit)
+}
+
+// ApplyAccrual переносит в заказ number результат расчёта result. Начисление
+// сохраняется только вместе со статусом PROCESSED и попадает в баланс
+// в тот же момент, что и статус. Заказы в окончательных статусах
+// не меняются. Для статуса NEW и неизвестных статусов возвращает ошибку:
+// результатом расчёта они быть не могут.
+func (s *Orders) ApplyAccrual(ctx context.Context, number string, result model.AccrualResult) error {
+	switch result.Status {
+	case model.StatusProcessed:
+		return s.repo.UpdateOrder(ctx, number, result.Status, result.Amount)
+	case model.StatusProcessing, model.StatusInvalid:
+		return s.repo.UpdateOrder(ctx, number, result.Status, nil)
+	default:
+		return fmt.Errorf("недопустимый статус результата расчёта %q", result.Status)
+	}
 }

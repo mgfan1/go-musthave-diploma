@@ -14,6 +14,36 @@ type OrderRepository struct {
 	mock.Mock
 }
 
+// ClaimPendingOrders provides a mock function with given fields: ctx, limit
+func (_m *OrderRepository) ClaimPendingOrders(ctx context.Context, limit int) ([]string, error) {
+	ret := _m.Called(ctx, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ClaimPendingOrders")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, int) ([]string, error)); ok {
+		return rf(ctx, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, int) []string); ok {
+		r0 = rf(ctx, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, int) error); ok {
+		r1 = rf(ctx, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CreateOrder provides a mock function with given fields: ctx, userID, number
 func (_m *OrderRepository) CreateOrder(ctx context.Context, userID int64, number string) (int64, bool, error) {
 	ret := _m.Called(ctx, userID, number)
@@ -47,6 +77,24 @@ func (_m *OrderRepository) CreateOrder(ctx context.Context, userID int64, number
 	}
 
 	return r0, r1, r2
+}
+
+// UpdateOrder provides a mock function with given fields: ctx, number, status, accrual
+func (_m *OrderRepository) UpdateOrder(ctx context.Context, number string, status model.OrderStatus, accrual *model.Money) error {
+	ret := _m.Called(ctx, number, status, accrual)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateOrder")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, model.OrderStatus, *model.Money) error); ok {
+		r0 = rf(ctx, number, status, accrual)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // UserOrders provides a mock function with given fields: ctx, userID

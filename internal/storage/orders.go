@@ -66,3 +66,60 @@ func (s *PGStorage) UserOrders(ctx context.Context, userID int64) ([]model.Order
 
 	return orders, nil
 }
+
+// ClaimPendingOrders выдаёт на опрос до limit заказов в статусах NEW
+// и PROCESSING и возвращает их номера. Первыми идут заказы, которые ещё
+// не опрашивались или опрашивались раньше остальных, а выданным заказам
+// сразу проставляется время опроса, поэтому следующая выдача достанется
+// другим заказам. Строки, которые в этот момент выдаёт другой запрос,
+// пропускаются, так что параллельные выдачи не пересекаются.
+func (s *PGStorage) ClaimPendingOrders(ctx context.Context, limit int) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`UPDATE orders SET polled_at = now()
+		 WHERE number IN (
+		     SELECT number FROM orders
+		     WHERE status IN ('NEW', 'PROCESSING')
+		     ORDER BY polled_at NULLS FIRST, uploaded_at
+		     LIMIT $1
+		     FOR UPDATE SKIP LOCKED
+		 )
+		 RETURNING number`,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("не выбрал заказы для опроса: %w", err)
+	}
+	defer rows.Close()
+
+	var numbers []string
+	for rows.Next() {
+		var number string
+		if err := rows.Scan(&number); err != nil {
+			return nil, fmt.Errorf("не прочитал номер заказа: %w", err)
+		}
+		numbers = append(numbers, number)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("не выбрал заказы для опроса: %w", err)
+	}
+
+	return numbers, nil
+}
+
+// UpdateOrder записывает заказу number статус status и начисление accrual.
+// Оба поля меняются одним UPDATE, то есть атомарно: баланс, который
+// считается по начислениям обработанных заказов, видит статус PROCESSED
+// только вместе с суммой. Заказы в окончательных статусах INVALID
+// и PROCESSED не меняются.
+func (s *PGStorage) UpdateOrder(ctx context.Context, number string, status model.OrderStatus, accrual *model.Money) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE orders SET status = $2, accrual = $3
+		 WHERE number = $1 AND status IN ('NEW', 'PROCESSING')`,
+		number, status, accrual,
+	)
+	if err != nil {
+		return fmt.Errorf("не обновил заказ: %w", err)
+	}
+
+	return nil
+}

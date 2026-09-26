@@ -15,3 +15,7 @@ packages:
     interfaces:
       UserRepository:
       OrderRepository:
+  github.com/mgfan1/go-musthave-diploma/internal/accrual:
+    interfaces:
+      Orders:
+      Fetcher:
