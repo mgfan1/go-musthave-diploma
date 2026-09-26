@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -110,11 +109,13 @@ func TestRunLogsActualAddr(t *testing.T) {
 
 func TestRunFinishesStartedRequest(t *testing.T) {
 	entered := make(chan struct{})
+	shutdownStarted := make(chan struct{})
 	srv, logs := observed(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		close(entered)
-		time.Sleep(300 * time.Millisecond)
+		<-shutdownStarted
 		_, _ = io.WriteString(w, "done")
 	}))
+	srv.http.RegisterOnShutdown(func() { close(shutdownStarted) })
 
 	addr, cancel, done := start(t, srv, logs)
 	got := get(t, addr)
@@ -167,52 +168,16 @@ func TestNewSetsTimeouts(t *testing.T) {
 	assert.Equal(t, writeTimeout, srv.http.WriteTimeout)
 	assert.Equal(t, idleTimeout, srv.http.IdleTimeout)
 	assert.Equal(t, shutdownTimeout, srv.shutdownTimeout)
-	assert.Less(t, handlerTimeout, writeTimeout)
-	assert.NotNil(t, srv.http.ErrorLog)
 }
 
-func TestNewLimitsHandlerTime(t *testing.T) {
-	var (
-		deadline time.Time
-		ok       bool
-	)
-	srv := New("127.0.0.1:0", http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		deadline, ok = r.Context().Deadline()
-	}), zap.NewNop())
+func TestNewLogsServerErrorsAtErrorLevel(t *testing.T) {
+	core, logs := observer.New(zap.DebugLevel)
+	srv := New("127.0.0.1:0", http.NotFoundHandler(), zap.New(core))
 
-	srv.http.Handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	srv.http.ErrorLog.Print("http: TLS handshake error")
 
-	require.True(t, ok, "у контекста обработчика нет дедлайна")
-	assert.WithinDuration(t, time.Now().Add(handlerTimeout), deadline, time.Second)
-}
-
-func TestNewKeepsHandlerResponse(t *testing.T) {
-	tests := []struct {
-		name   string
-		status int
-		header string
-		value  string
-		body   string
-	}{
-		{"токен после входа", http.StatusOK, "Authorization", "Bearer token", ""},
-		{"пустой список", http.StatusNoContent, "Content-Type", "application/json", ""},
-		{"тело ответа", http.StatusOK, "Content-Type", "application/json", `{"current":500.5,"withdrawn":42}`},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv := New("127.0.0.1:0", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set(tt.header, tt.value)
-				w.WriteHeader(tt.status)
-				_, _ = io.WriteString(w, tt.body)
-			}), zap.NewNop())
-
-			w := httptest.NewRecorder()
-			srv.http.Handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
-
-			assert.Equal(t, tt.status, w.Code)
-			assert.Equal(t, tt.value, w.Header().Get(tt.header))
-			assert.Equal(t, tt.body, w.Body.String())
-		})
-	}
+	entries := logs.All()
+	require.Len(t, entries, 1)
+	assert.Equal(t, zap.ErrorLevel, entries[0].Level)
+	assert.Equal(t, "http: TLS handshake error", entries[0].Message)
 }

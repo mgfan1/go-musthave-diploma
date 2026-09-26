@@ -23,13 +23,13 @@ func Auth(tokens TokenParser) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
 			if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
-				unauthorized(w)
+				Unauthorized(w)
 				return
 			}
 
 			userID, err := tokens.Parse(token)
 			if err != nil {
-				unauthorized(w)
+				Unauthorized(w)
 				return
 			}
 
@@ -38,7 +38,9 @@ func Auth(tokens TokenParser) func(http.Handler) http.Handler {
 	}
 }
 
-func unauthorized(w http.ResponseWriter) {
+// Unauthorized отвечает 401 с заголовком WWW-Authenticate: Bearer, сообщая
+// клиенту, что нужен токен доступа.
+func Unauthorized(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", "Bearer")
 	http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 }

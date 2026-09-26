@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mgfan1/go-musthave-diploma/internal/middleware"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
@@ -37,7 +38,7 @@ func (h *Handler) uploadOrder(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, model.ErrOrderOwnedByOther):
 		http.Error(w, "номер заказа уже загружен другим пользователем", http.StatusConflict)
 	case errors.Is(err, model.ErrUserNotFound):
-		unauthorized(w)
+		middleware.Unauthorized(w)
 	case err != nil:
 		h.internalError(w, r, "не принял заказ", err)
 	case created:

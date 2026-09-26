@@ -12,7 +12,9 @@ import (
 type OrderRepository interface {
 	// CreateOrder сохраняет новый заказ в статусе NEW и возвращает владельца
 	// заказа и признак того, что заказ создан сейчас. Существующий заказ
-	// не меняет. Если пользователя нет, возвращает model.ErrUserNotFound.
+	// не меняет. Если пользователя нет, а номер ещё не загружен, возвращает
+	// model.ErrUserNotFound. Если номер уже загружен, наличие пользователя
+	// не проверяет.
 	CreateOrder(ctx context.Context, userID int64, number string) (int64, bool, error)
 	// UserOrders возвращает заказы пользователя от новых к старым.
 	UserOrders(ctx context.Context, userID int64) ([]model.Order, error)
@@ -40,8 +42,8 @@ func NewOrders(repo OrderRepository) *Orders {
 // загружал такой номер: повторная загрузка ничего не меняет. Если номер
 // не проходит проверку по алгоритму Луна, возвращает
 // model.ErrInvalidOrderNumber, а если его уже загрузил другой пользователь,
-// возвращает model.ErrOrderOwnedByOther. Если пользователя нет, возвращает
-// model.ErrUserNotFound.
+// возвращает model.ErrOrderOwnedByOther. Если пользователя нет, а номер ещё
+// не загружен, возвращает model.ErrUserNotFound.
 func (s *Orders) Upload(ctx context.Context, userID int64, number string) (bool, error) {
 	if !luhn.Valid(number) {
 		return false, model.ErrInvalidOrderNumber

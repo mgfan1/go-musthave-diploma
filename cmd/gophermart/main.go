@@ -63,9 +63,8 @@ func run(logger *zap.Logger, args []string) error {
 		logger.Warn("токены подписываются секретом по умолчанию, задайте флаг -s или JWT_SECRET")
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := notifyContext()
 	defer stop()
-	context.AfterFunc(ctx, stop)
 
 	db, err := sql.Open("pgx", cfg.DatabaseURI)
 	if err != nil {
@@ -104,4 +103,13 @@ func run(logger *zap.Logger, args []string) error {
 	wg.Wait()
 
 	return err
+}
+
+// notifyContext возвращает контекст, который отменяется при первом SIGINT
+// или SIGTERM либо при вызове stop. После первого сигнала перехват снимается,
+// и повторный сигнал завершает процесс сразу, не дожидаясь штатной остановки.
+func notifyContext() (ctx context.Context, stop context.CancelFunc) {
+	ctx, stop = signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	context.AfterFunc(ctx, stop)
+	return ctx, stop
 }

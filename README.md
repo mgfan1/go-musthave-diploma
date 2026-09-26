@@ -1,28 +1,8 @@
-# go-musthave-diploma-tpl
+# Гофермарт
 
-Шаблон репозитория для индивидуального дипломного проекта курса «Go-разработчик»
+HTTP-сервис накопительной системы лояльности. Пользователь регистрируется и входит, загружает номера своих заказов, смотрит баланс и списывает баллы в счёт оплаты других заказов. Начисления по заказам сервис получает из внешней системы расчёта accrual.
 
-# Начало работы
-
-1. Склонируйте репозиторий в любую подходящую директорию на вашем компьютере.
-2. В корне репозитория выполните команду `go mod init <name>` (где `<name>` — адрес вашего репозитория на GitHub без
-   префикса `https://`) для создания модуля
-
-# Обновление шаблона
-
-Чтобы иметь возможность получать обновления автотестов и других частей шаблона, выполните команду:
-
-```
-git remote add -m master template https://github.com/yandex-praktikum/go-musthave-diploma-tpl.git
-```
-
-Для обновления кода автотестов выполните команду:
-
-```
-git fetch template && git checkout template/master .github
-```
-
-Затем добавьте полученные изменения в свой репозиторий.
+Техническое задание — [SPECIFICATION.md](SPECIFICATION.md).
 
 # Разработка
 
@@ -58,10 +38,11 @@ go run ./cmd/gophermart
 go test ./...
 ```
 
-Тесты хранилища работают с настоящей базой и без неё пропускаются. Чтобы их включить, задайте `TEST_DATABASE_DSN`. Тесты очищают таблицы, поэтому базу для них лучше держать отдельной:
+Тесты хранилища работают с настоящей базой и без неё пропускаются. Чтобы их включить, задайте `TEST_DATABASE_DSN`. Тесты очищают таблицы, поэтому не указывайте в нём базу, с которой работает сервис, — заведите для тестов отдельную:
 
 ```
-TEST_DATABASE_DSN="postgres://gophermart:gophermart@localhost:56432/gophermart?sslmode=disable" go test ./...
+docker exec pg-gophermart createdb -U gophermart gophermart_test
+TEST_DATABASE_DSN="postgres://gophermart:gophermart@localhost:56432/gophermart_test?sslmode=disable" go test ./...
 ```
 
 ## Покрытие
@@ -79,3 +60,19 @@ go tool cover -func=cover.out | tail -1
 go install github.com/vektra/mockery/v2@v2.53.6
 mockery
 ```
+
+# Обновление шаблона
+
+Чтобы иметь возможность получать обновления автотестов и других частей шаблона, выполните команду:
+
+```
+git remote add -m master template https://github.com/yandex-praktikum/go-musthave-diploma-tpl.git
+```
+
+Для обновления кода автотестов выполните команду:
+
+```
+git fetch template && git checkout template/master .github
+```
+
+Затем добавьте полученные изменения в свой репозиторий.

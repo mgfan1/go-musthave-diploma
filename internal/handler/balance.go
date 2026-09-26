@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mgfan1/go-musthave-diploma/internal/middleware"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
@@ -62,7 +63,7 @@ func (h *Handler) withdraw(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, model.ErrInsufficientFunds):
 		http.Error(w, "на счету недостаточно средств", http.StatusPaymentRequired)
 	case errors.Is(err, model.ErrUserNotFound):
-		unauthorized(w)
+		middleware.Unauthorized(w)
 	case err != nil:
 		h.internalError(w, r, "не списал баллы", err)
 	default:

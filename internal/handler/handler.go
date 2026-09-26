@@ -7,6 +7,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/auth"
+	"github.com/mgfan1/go-musthave-diploma/internal/middleware"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
@@ -25,8 +26,9 @@ type UserService interface {
 type OrderService interface {
 	// Upload принимает номер заказа и возвращает true, если заказ новый,
 	// и false, если пользователь уже загружал этот номер. Возвращает
-	// model.ErrInvalidOrderNumber, model.ErrOrderOwnedByOther
-	// или model.ErrUserNotFound, если заказ принять нельзя.
+	// model.ErrInvalidOrderNumber или model.ErrOrderOwnedByOther, если заказ
+	// принять нельзя, и model.ErrUserNotFound, если пользователя нет, а номер
+	// ещё не загружен.
 	Upload(ctx context.Context, userID int64, number string) (bool, error)
 	// List возвращает заказы пользователя от новых к старым.
 	List(ctx context.Context, userID int64) ([]model.Order, error)
@@ -65,14 +67,9 @@ func New(users UserService, orders OrderService, balance BalanceService, log *za
 func currentUser(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	userID, ok := auth.UserID(r.Context())
 	if !ok {
-		unauthorized(w)
+		middleware.Unauthorized(w)
 	}
 	return userID, ok
-}
-
-func unauthorized(w http.ResponseWriter) {
-	w.Header().Set("WWW-Authenticate", "Bearer")
-	http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 }
 
 func requestFields(r *http.Request) []zap.Field {

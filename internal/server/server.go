@@ -15,7 +15,6 @@ import (
 
 const (
 	shutdownTimeout   = 5 * time.Second
-	handlerTimeout    = 10 * time.Second
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = 15 * time.Second
 	writeTimeout      = 30 * time.Second
@@ -31,19 +30,21 @@ type Server struct {
 
 // New создаёт сервер, который будет слушать addr и передавать запросы handler.
 // Чтение запроса, запись ответа и простой соединения ограничены таймаутами,
-// чтобы медленный клиент не держал соединение бесконечно. Обработка запроса
-// тоже ограничена по времени: по истечении срока контекст запроса отменяется,
-// а клиент получает 503. Собственные сообщения net/http пишутся в log.
+// чтобы медленный клиент не держал соединение бесконечно. Срок обработки
+// запроса задаёт сам handler. Собственные сообщения net/http пишутся в log
+// на уровне Error.
 func New(addr string, handler http.Handler, log *zap.Logger) *Server {
+	errorLog, _ := zap.NewStdLogAt(log, zap.ErrorLevel)
+
 	return &Server{
 		http: &http.Server{
 			Addr:              addr,
-			Handler:           http.TimeoutHandler(handler, handlerTimeout, http.StatusText(http.StatusServiceUnavailable)),
+			Handler:           handler,
 			ReadHeaderTimeout: readHeaderTimeout,
 			ReadTimeout:       readTimeout,
 			WriteTimeout:      writeTimeout,
 			IdleTimeout:       idleTimeout,
-			ErrorLog:          zap.NewStdLog(log),
+			ErrorLog:          errorLog,
 		},
 		log:             log,
 		shutdownTimeout: shutdownTimeout,

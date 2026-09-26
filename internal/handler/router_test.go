@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/auth"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
@@ -23,6 +25,38 @@ const testSecret = "секрет для тестов"
 
 func newRouter(users UserService, orders OrderService, balance BalanceService) http.Handler {
 	return New(users, orders, balance, zap.NewNop()).Router(zap.NewNop(), auth.NewTokens(testSecret, time.Hour))
+}
+
+func loggedRouter(users UserService, orders OrderService, balance BalanceService, timeout time.Duration) (http.Handler, *observer.ObservedLogs) {
+	core, logs := observer.New(zap.InfoLevel)
+	router := New(users, orders, balance, zap.NewNop()).router(zap.New(core), auth.NewTokens(testSecret, time.Hour), timeout)
+	return router, logs
+}
+
+func loggedStatus(t *testing.T, logs *observer.ObservedLogs) int64 {
+	t.Helper()
+
+	entries := logs.FilterMessage("обработан запрос").All()
+	require.Len(t, entries, 1)
+
+	status, ok := entries[0].ContextMap()["status"].(int64)
+	require.True(t, ok)
+
+	return status
+}
+
+const panicMessage = "паника при обработке запроса"
+
+func panicStack(t *testing.T, logs *observer.ObservedLogs) string {
+	t.Helper()
+
+	entries := logs.FilterMessage(panicMessage).All()
+	require.Len(t, entries, 1)
+
+	stack, ok := entries[0].ContextMap()["stack"].(string)
+	require.True(t, ok)
+
+	return stack
 }
 
 func bearer(t *testing.T, userID int64) string {
@@ -89,9 +123,106 @@ func TestRouterRecoversPanic(t *testing.T) {
 	users := newMockUserService(t)
 	users.On("Register", mock.Anything, "gopher", "secret").Run(func(mock.Arguments) { panic("boom") })
 
-	w := send(newRouter(users, newMockOrderService(t), newMockBalanceService(t)), http.MethodPost, "/api/user/register", goodCredentials, "")
+	router, logs := loggedRouter(users, newMockOrderService(t), newMockBalanceService(t), handlerTimeout)
+
+	w := send(router, http.MethodPost, "/api/user/register", goodCredentials, "")
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
+	assert.Equal(t, int64(http.StatusInternalServerError), loggedStatus(t, logs))
+	assert.Contains(t, panicStack(t, logs), "(*mockUserService).Register")
+}
+
+func TestRouterRecoversPanicAfterTimeout(t *testing.T) {
+	balance := newMockBalanceService(t)
+	balance.On("Get", mock.Anything, int64(7)).
+		Run(func(args mock.Arguments) {
+			<-args.Get(0).(context.Context).Done()
+			panic("boom")
+		})
+
+	router, logs := loggedRouter(newMockUserService(t), newMockOrderService(t), balance, 50*time.Millisecond)
+
+	w := send(router, http.MethodGet, "/api/user/balance", "", bearer(t, 7))
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Equal(t, int64(http.StatusServiceUnavailable), loggedStatus(t, logs))
+
+	require.Eventually(t, func() bool {
+		return logs.FilterMessage(panicMessage).Len() == 1
+	}, time.Second, time.Millisecond, "паника после истечения срока не попала в журнал")
+	assert.Contains(t, panicStack(t, logs), "(*mockBalanceService).Get")
+}
+
+func TestRouterLimitsHandlerTime(t *testing.T) {
+	var (
+		deadline time.Time
+		ok       bool
+	)
+	balance := newMockBalanceService(t)
+	balance.On("Get", mock.Anything, int64(7)).
+		Run(func(args mock.Arguments) { deadline, ok = args.Get(0).(context.Context).Deadline() }).
+		Return(model.Balance{}, nil)
+
+	send(newRouter(newMockUserService(t), newMockOrderService(t), balance), http.MethodGet, "/api/user/balance", "", bearer(t, 7))
+
+	require.True(t, ok, "у контекста обработчика нет дедлайна")
+	assert.WithinDuration(t, time.Now().Add(handlerTimeout), deadline, time.Second)
+}
+
+func TestRouterLogsTimeout(t *testing.T) {
+	finished := make(chan struct{})
+	balance := newMockBalanceService(t)
+	balance.On("Get", mock.Anything, int64(7)).
+		Run(func(args mock.Arguments) {
+			<-args.Get(0).(context.Context).Done()
+			close(finished)
+		}).
+		Return(model.Balance{}, context.DeadlineExceeded)
+
+	router, logs := loggedRouter(newMockUserService(t), newMockOrderService(t), balance, 50*time.Millisecond)
+
+	w := send(router, http.MethodGet, "/api/user/balance", "", bearer(t, 7))
+	<-finished
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	assert.Equal(t, http.StatusText(http.StatusServiceUnavailable), w.Body.String())
+	assert.Equal(t, int64(http.StatusServiceUnavailable), loggedStatus(t, logs))
+}
+
+func TestRouterKeepsHandlerResponse(t *testing.T) {
+	users := newMockUserService(t)
+	users.On("Login", mock.Anything, "gopher", "secret").Return("token", nil)
+	orders := newMockOrderService(t)
+	orders.On("List", mock.Anything, int64(7)).Return([]model.Order{}, nil)
+	balance := newMockBalanceService(t)
+	balance.On("Get", mock.Anything, int64(7)).Return(model.Balance{Current: 500.5, Withdrawn: 42}, nil)
+
+	router := newRouter(users, orders, balance)
+
+	cases := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		token      string
+		wantCode   int
+		wantHeader string
+		wantValue  string
+		wantBody   string
+	}{
+		{"токен после входа", http.MethodPost, "/api/user/login", goodCredentials, "", http.StatusOK, "Authorization", "Bearer token", ""},
+		{"пустой список", http.MethodGet, "/api/user/orders", "", bearer(t, 7), http.StatusNoContent, "Content-Type", "application/json", ""},
+		{"тело ответа", http.MethodGet, "/api/user/balance", "", bearer(t, 7), http.StatusOK, "Content-Type", "application/json", `{"current":500.5,"withdrawn":42}`},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := send(router, c.method, c.path, c.body, c.token)
+
+			assert.Equal(t, c.wantCode, w.Code)
+			assert.Equal(t, c.wantValue, w.Header().Get(c.wantHeader))
+			assert.Equal(t, c.wantBody, w.Body.String())
+		})
+	}
 }
 
 func gzipped(t *testing.T, body string) *bytes.Buffer {

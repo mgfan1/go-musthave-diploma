@@ -23,6 +23,18 @@ const userTotals = `
 	    WHERE user_id = $1
 	)`
 
+// withdrawIfEnough сохраняет списание, только если баллов на балансе хватает.
+// CTE amount объявлен AS MATERIALIZED, иначе PostgreSQL встроит его в запрос,
+// приведение суммы к типу колонки выполнится ещё при планировании, и огромная
+// сумма даст ошибку переполнения вместо ErrInsufficientFunds.
+const withdrawIfEnough = userTotals + `, amount AS MATERIALIZED (
+	    SELECT round(CAST($2 AS numeric), 2) AS value
+	)
+	INSERT INTO withdrawals (user_id, order_number, amount)
+	SELECT $1, $3, amount.value
+	FROM accrued, withdrawn, amount
+	WHERE accrued.total - withdrawn.total >= amount.value`
+
 // Balance считает баланс пользователя userID одним запросом: начисления
 // по обработанным заказам минус списания и отдельно сумму списаний.
 // Суммы складывает база в numeric, так что копейки не теряются. Если
@@ -47,9 +59,7 @@ func (s *PGStorage) Balance(ctx context.Context, userID int64) (model.Balance, e
 // Параллельные списания одного пользователя выполняются по очереди. Если баллов
 // не хватает, возвращает model.ErrInsufficientFunds, если сумма после округления
 // нулевая или не помещается в numeric(12,2), model.ErrInvalidWithdrawSum, а если
-// пользователя нет, model.ErrUserNotFound. CTE с суммой материализован, иначе
-// приведение типа выполнится при планировании и огромная сумма даст ошибку
-// переполнения вместо ErrInsufficientFunds.
+// пользователя нет, model.ErrUserNotFound.
 func (s *PGStorage) Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -66,16 +76,7 @@ func (s *PGStorage) Withdraw(ctx context.Context, userID int64, order string, su
 		return fmt.Errorf("не заблокировал счёт пользователя: %w", err)
 	}
 
-	res, err := tx.ExecContext(ctx,
-		userTotals+`, amount AS MATERIALIZED (
-		    SELECT round(CAST($2 AS numeric), 2) AS value
-		)
-		INSERT INTO withdrawals (user_id, order_number, amount)
-		SELECT $1, $3, amount.value
-		FROM accrued, withdrawn, amount
-		WHERE accrued.total - withdrawn.total >= amount.value`,
-		userID, sum, order,
-	)
+	res, err := tx.ExecContext(ctx, withdrawIfEnough, userID, sum, order)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && (pgErr.Code == pgerrcode.CheckViolation || pgErr.Code == pgerrcode.NumericValueOutOfRange) {
 		return model.ErrInvalidWithdrawSum
