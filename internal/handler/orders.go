@@ -10,8 +10,6 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
-const maxOrderBody = 1 << 10
-
 type orderResponse struct {
 	Number     string       `json:"number"`
 	Status     string       `json:"status"`
@@ -25,7 +23,7 @@ func (h *Handler) uploadOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxOrderBody))
+	body, err := io.ReadAll(r.Body)
 	number := strings.TrimSpace(string(body))
 	if err != nil || number == "" {
 		http.Error(w, "неверный формат запроса", http.StatusBadRequest)
@@ -39,7 +37,7 @@ func (h *Handler) uploadOrder(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, model.ErrOrderOwnedByOther):
 		http.Error(w, "номер заказа уже загружен другим пользователем", http.StatusConflict)
 	case err != nil:
-		h.internalError(w, "не принял заказ", err)
+		h.internalError(w, r, "не принял заказ", err)
 	case created:
 		w.WriteHeader(http.StatusAccepted)
 	default:
@@ -55,11 +53,11 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
 
 	orders, err := h.orders.List(r.Context(), userID)
 	if err != nil {
-		h.internalError(w, "не прочитал заказы", err)
+		h.internalError(w, r, "не прочитал заказы", err)
 		return
 	}
 	if len(orders) == 0 {
-		h.writeJSON(w, http.StatusNoContent, nil)
+		h.writeJSON(w, r, http.StatusNoContent, nil)
 		return
 	}
 
@@ -73,5 +71,5 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, r, http.StatusOK, resp)
 }

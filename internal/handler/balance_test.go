@@ -109,7 +109,7 @@ func TestWithdrawBadRequest(t *testing.T) {
 		{"номер числом", `{"order":2377225624,"sum":751}`},
 		{"нет номера", `{"sum":751}`},
 		{"пустой номер", `{"order":"","sum":751}`},
-		{"слишком длинное тело", `{"order":"2377225624","sum":751,"comment":"` + strings.Repeat("a", maxWithdrawBody) + `"}`},
+		{"слишком длинное тело", `{"order":"2377225624","sum":751,"comment":"` + strings.Repeat("a", maxRequestBody) + `"}`},
 	}
 
 	for _, b := range bodies {

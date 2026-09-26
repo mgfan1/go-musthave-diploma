@@ -10,17 +10,33 @@ import (
 
 const defaultJWTSecret = "gophermart-local-secret"
 
-// Config хранит настройки сервиса.
+// Config описывает настройки сервиса в том виде, в каком их вернул Parse.
+// Parse проверяет только, что заданы строка подключения к базе и секрет
+// токенов, и нормализует адрес системы расчёта. Остальные значения
+// передаются как есть.
 type Config struct {
-	// Addr задаёт адрес и порт HTTP-сервера: флаг -a или RUN_ADDRESS.
+	// Addr задаёт адрес, который слушает HTTP-сервер: флаг -a или
+	// RUN_ADDRESS, по умолчанию localhost:8080. Parse адрес не проверяет,
+	// неверный обнаружится только при запуске сервера.
 	Addr string
-	// DatabaseURI задаёт строку подключения к PostgreSQL: флаг -d или DATABASE_URI.
+	// DatabaseURI задаёт строку подключения к PostgreSQL: флаг -d или
+	// DATABASE_URI. Обязательна, без неё Parse возвращает ошибку.
 	DatabaseURI string
 	// AccrualAddress задаёт базовый адрес системы расчёта начислений: флаг -r
-	// или ACCRUAL_SYSTEM_ADDRESS. Хранится со схемой и без слеша в конце.
+	// или ACCRUAL_SYSTEM_ADDRESS. Parse дописывает схему http://, если её
+	// нет, и убирает слеш в конце. Пустой адрес допустим, тогда заказы
+	// не опрашиваются.
 	AccrualAddress string
-	// JWTSecret задаёт секрет подписи токенов доступа: флаг -s или JWT_SECRET.
+	// JWTSecret задаёт секрет подписи токенов доступа HS256: флаг -s или
+	// JWT_SECRET. Значение по умолчанию годится только для локального
+	// запуска: оно лежит в исходниках, и с ним токен подделает кто угодно.
 	JWTSecret string
+}
+
+// UsesDefaultSecret сообщает, что JWTSecret совпадает с секретом
+// по умолчанию из исходников и токены может подделать кто угодно.
+func (c Config) UsesDefaultSecret() bool {
+	return c.JWTSecret == defaultJWTSecret
 }
 
 // Parse читает флаги и переменные окружения и возвращает готовую конфигурацию.

@@ -35,7 +35,7 @@ func (h *Handler) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.internalError(w, "не зарегистрировал пользователя", err)
+		h.internalError(w, r, "не зарегистрировал пользователя", err)
 		return
 	}
 
@@ -55,7 +55,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.internalError(w, "не выполнил вход", err)
+		h.internalError(w, r, "не выполнил вход", err)
 		return
 	}
 

@@ -88,6 +88,7 @@ func TestCredentialsBadRequest(t *testing.T) {
 		{"нет пароля", `{"login":"gopher"}`},
 		{"пустые поля", `{"login":"","password":""}`},
 		{"пароль длиннее 72 байт", `{"login":"gopher","password":"` + strings.Repeat("a", auth.MaxPasswordLen+1) + `"}`},
+		{"слишком длинное тело", `{"login":"` + strings.Repeat("a", maxRequestBody) + `","password":"secret"}`},
 	}
 
 	for _, path := range []string{"/api/user/register", "/api/user/login"} {

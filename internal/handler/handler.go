@@ -39,7 +39,8 @@ type BalanceService interface {
 	Withdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error)
 }
 
-// Handler обслуживает запросы HTTP API.
+// Handler переводит запросы HTTP API в вызовы сервисов, а их ошибки в коды
+// ответа. Сам он http.Handler не реализует, маршруты к нему собирает Router.
 type Handler struct {
 	users   UserService
 	orders  OrderService
@@ -48,7 +49,9 @@ type Handler struct {
 }
 
 // New создаёт обработчик API поверх сервисов пользователей users,
-// заказов orders и баланса balance.
+// заказов orders и баланса balance. Сбои сервисов пишутся в log на уровне
+// Warn вместе с методом и путём запроса и пользователем, если он известен,
+// а клиент получает 500 без подробностей.
 func New(users UserService, orders OrderService, balance BalanceService, log *zap.Logger) *Handler {
 	return &Handler{users: users, orders: orders, balance: balance, log: log}
 }
@@ -61,7 +64,18 @@ func currentUser(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return userID, ok
 }
 
-func (h *Handler) internalError(w http.ResponseWriter, msg string, err error) {
-	h.log.Warn(msg, zap.Error(err))
+func requestFields(r *http.Request) []zap.Field {
+	fields := []zap.Field{
+		zap.String("method", r.Method),
+		zap.String("path", r.URL.Path),
+	}
+	if userID, ok := auth.UserID(r.Context()); ok {
+		fields = append(fields, zap.Int64("user_id", userID))
+	}
+	return fields
+}
+
+func (h *Handler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {
+	h.log.Warn(msg, append(requestFields(r), zap.Error(err))...)
 	http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 }

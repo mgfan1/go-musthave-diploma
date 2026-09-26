@@ -18,22 +18,31 @@ type UserRepository interface {
 	UserByLogin(ctx context.Context, login string) (model.User, error)
 }
 
+// TokenIssuer выпускает токены доступа. Его реализует auth.Tokens.
+type TokenIssuer interface {
+	// Issue возвращает подписанный токен доступа для пользователя userID.
+	Issue(userID int64) (string, error)
+}
+
 // Users регистрирует пользователей и проверяет их пароли. И регистрация,
 // и вход заканчиваются выдачей токена доступа, поэтому после регистрации
 // отдельный вход не нужен.
 type Users struct {
 	repo   UserRepository
-	tokens *auth.Tokens
+	tokens TokenIssuer
 }
 
 // NewUsers создаёт сервис пользователей поверх хранилища repo.
 // Токены доступа выпускает tokens.
-func NewUsers(repo UserRepository, tokens *auth.Tokens) *Users {
+func NewUsers(repo UserRepository, tokens TokenIssuer) *Users {
 	return &Users{repo: repo, tokens: tokens}
 }
 
 // Register создаёт пользователя и сразу выпускает для него токен доступа.
-// Если логин занят, возвращает model.ErrLoginTaken.
+// Если логин занят, возвращает model.ErrLoginTaken. Если токен выпустить
+// не удалось, возвращает ошибку, но пользователь уже сохранён: повторная
+// регистрация с тем же логином получит model.ErrLoginTaken, а войти
+// можно через Login.
 func (s *Users) Register(ctx context.Context, login, password string) (string, error) {
 	hash, err := auth.HashPassword(password)
 	if err != nil {

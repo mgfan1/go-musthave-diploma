@@ -53,6 +53,38 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+func TestRegisterTokenIssueFails(t *testing.T) {
+	boom := errors.New("не подписал токен")
+
+	repo := newMockUserRepository(t)
+	repo.On("CreateUser", mock.Anything, "gopher", mock.Anything).Return(int64(7), nil).Once()
+
+	tokens := newMockTokenIssuer(t)
+	tokens.On("Issue", int64(7)).Return("", boom)
+
+	token, err := NewUsers(repo, tokens).Register(t.Context(), "gopher", password)
+	require.ErrorIs(t, err, boom)
+	assert.Empty(t, token)
+	repo.AssertCalled(t, "CreateUser", mock.Anything, "gopher", mock.Anything)
+}
+
+func TestLoginTokenIssueFails(t *testing.T) {
+	boom := errors.New("не подписал токен")
+
+	hash, err := auth.HashPassword(password)
+	require.NoError(t, err)
+
+	repo := newMockUserRepository(t)
+	repo.On("UserByLogin", mock.Anything, "gopher").Return(model.User{ID: 7, Login: "gopher", PasswordHash: hash}, nil)
+
+	tokens := newMockTokenIssuer(t)
+	tokens.On("Issue", int64(7)).Return("", boom)
+
+	token, err := NewUsers(repo, tokens).Login(t.Context(), "gopher", password)
+	require.ErrorIs(t, err, boom)
+	assert.Empty(t, token)
+}
+
 func TestRegisterTooLongPassword(t *testing.T) {
 	repo := newMockUserRepository(t)
 

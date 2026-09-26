@@ -93,6 +93,31 @@ func TestParseRequiresSecret(t *testing.T) {
 	assert.ErrorContains(t, err, "JWT_SECRET")
 }
 
+func TestParseDefaultSecret(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		env  string
+		want bool
+	}{
+		{name: "секрет не задан", want: true},
+		{name: "секрет из флага", args: []string{"-s", "секрет из флага"}},
+		{name: "секрет из окружения", env: "секрет из окружения"},
+		{name: "явно передан секрет по умолчанию", args: []string{"-s", defaultJWTSecret}, want: true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			withArgs(t, append([]string{"-d", testDSN}, c.args...)...)
+			t.Setenv("JWT_SECRET", c.env)
+
+			cfg, err := Parse()
+			require.NoError(t, err)
+			assert.Equal(t, c.want, cfg.UsesDefaultSecret())
+		})
+	}
+}
+
 func TestNormalizeURL(t *testing.T) {
 	cases := []struct {
 		name string

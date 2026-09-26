@@ -35,7 +35,7 @@ func TestUploadOrder(t *testing.T) {
 		{name: "сбой сервиса", body: "12345678903", number: "12345678903", err: boom, wantCode: http.StatusInternalServerError},
 		{name: "пустое тело", body: "", wantCode: http.StatusBadRequest},
 		{name: "одни пробелы", body: " \r\n", wantCode: http.StatusBadRequest},
-		{name: "слишком длинное тело", body: strings.Repeat("1", maxOrderBody+1), wantCode: http.StatusBadRequest},
+		{name: "слишком длинное тело", body: strings.Repeat("1", maxRequestBody+1), wantCode: http.StatusBadRequest},
 	}
 
 	for _, c := range cases {

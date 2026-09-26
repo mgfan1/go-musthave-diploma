@@ -48,6 +48,9 @@ func run(logger *zap.Logger) error {
 	if err != nil {
 		return err
 	}
+	if cfg.UsesDefaultSecret() {
+		logger.Warn("токены подписываются секретом по умолчанию, задайте флаг -s или JWT_SECRET")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

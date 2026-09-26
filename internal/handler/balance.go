@@ -9,8 +9,6 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
-const maxWithdrawBody = 1 << 10
-
 type balanceResponse struct {
 	Current   model.Money `json:"current"`
 	Withdrawn model.Money `json:"withdrawn"`
@@ -35,11 +33,11 @@ func (h *Handler) getBalance(w http.ResponseWriter, r *http.Request) {
 
 	b, err := h.balance.Get(r.Context(), userID)
 	if err != nil {
-		h.internalError(w, "не прочитал баланс", err)
+		h.internalError(w, r, "не прочитал баланс", err)
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, balanceResponse{Current: b.Current, Withdrawn: b.Withdrawn})
+	h.writeJSON(w, r, http.StatusOK, balanceResponse{Current: b.Current, Withdrawn: b.Withdrawn})
 }
 
 func (h *Handler) withdraw(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +47,7 @@ func (h *Handler) withdraw(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req withdrawRequest
-	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxWithdrawBody)).Decode(&req)
+	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil || req.Order == "" {
 		http.Error(w, "неверный формат запроса", http.StatusBadRequest)
 		return
@@ -58,13 +56,13 @@ func (h *Handler) withdraw(w http.ResponseWriter, r *http.Request) {
 	err = h.balance.Withdraw(r.Context(), userID, req.Order, req.Sum)
 	switch {
 	case errors.Is(err, model.ErrInvalidWithdrawSum):
-		http.Error(w, "сумма списания должна быть положительной", http.StatusBadRequest)
+		http.Error(w, "неверная сумма списания", http.StatusBadRequest)
 	case errors.Is(err, model.ErrInvalidOrderNumber):
 		http.Error(w, "неверный номер заказа", http.StatusUnprocessableEntity)
 	case errors.Is(err, model.ErrInsufficientFunds):
 		http.Error(w, "на счету недостаточно средств", http.StatusPaymentRequired)
 	case err != nil:
-		h.internalError(w, "не списал баллы", err)
+		h.internalError(w, r, "не списал баллы", err)
 	default:
 		w.WriteHeader(http.StatusOK)
 	}
@@ -78,11 +76,11 @@ func (h *Handler) listWithdrawals(w http.ResponseWriter, r *http.Request) {
 
 	withdrawals, err := h.balance.Withdrawals(r.Context(), userID)
 	if err != nil {
-		h.internalError(w, "не прочитал списания", err)
+		h.internalError(w, r, "не прочитал списания", err)
 		return
 	}
 	if len(withdrawals) == 0 {
-		h.writeJSON(w, http.StatusNoContent, nil)
+		h.writeJSON(w, r, http.StatusNoContent, nil)
 		return
 	}
 
@@ -95,5 +93,5 @@ func (h *Handler) listWithdrawals(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	h.writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, r, http.StatusOK, resp)
 }

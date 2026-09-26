@@ -42,12 +42,19 @@ func (s *PGStorage) Balance(ctx context.Context, userID int64) (model.Balance, e
 }
 
 // Withdraw списывает sum баллов пользователя userID в счёт заказа order.
-// Проверка баланса и запись списания идут в одной транзакции, которая
-// первым делом блокирует строку пользователя: параллельные списания
-// одного пользователя выполняются по очереди, и каждое видит баланс
-// с учётом предыдущих. Если баллов не хватает, возвращает
-// model.ErrInsufficientFunds. Сумма сохраняется с округлением до копеек,
-// и если после округления она нулевая, возвращает model.ErrInvalidWithdrawSum.
+// Сумма один раз округляется до копеек без ограничения разрядности, и
+// с балансом сравнивается то же значение, что попадает в списание: при
+// балансе 100 списание 100.004 проходит и сохраняется как 100.00, а сумма
+// больше баланса получает отказ, даже если не помещается в numeric(12,2).
+// Округлённую сумму запрос считает в материализованном CTE: иначе
+// PostgreSQL может ещё при планировании привести её к numeric(12,2)
+// и упасть на переполнении раньше проверки баланса. Проверка и запись идут
+// одним запросом в транзакции, которая первым делом блокирует строку
+// пользователя: параллельные списания одного пользователя выполняются
+// по очереди, и каждое видит баланс с учётом предыдущих. Если баллов
+// не хватает, возвращает model.ErrInsufficientFunds. Если после округления
+// сумма нулевая или баллов хватает, но сумма не помещается в numeric(12,2),
+// возвращает model.ErrInvalidWithdrawSum.
 func (s *PGStorage) Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -61,30 +68,30 @@ func (s *PGStorage) Withdraw(ctx context.Context, userID int64, order string, su
 		return fmt.Errorf("не заблокировал счёт пользователя: %w", err)
 	}
 
-	var enough bool
-	err = tx.QueryRowContext(ctx,
-		userTotals+`
-		SELECT accrued.total - withdrawn.total >= $2
-		FROM accrued, withdrawn`,
-		userID, sum,
-	).Scan(&enough)
-	if err != nil {
-		return fmt.Errorf("не проверил баланс: %w", err)
-	}
-	if !enough {
-		return model.ErrInsufficientFunds
-	}
-
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO withdrawals (user_id, order_number, amount) VALUES ($1, $2, $3)`,
-		userID, order, sum,
+	res, err := tx.ExecContext(ctx,
+		userTotals+`, amount AS MATERIALIZED (
+		    SELECT round(CAST($2 AS numeric), 2) AS value
+		)
+		INSERT INTO withdrawals (user_id, order_number, amount)
+		SELECT $1, $3, amount.value
+		FROM accrued, withdrawn, amount
+		WHERE accrued.total - withdrawn.total >= amount.value`,
+		userID, sum, order,
 	)
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.CheckViolation {
+	if errors.As(err, &pgErr) && (pgErr.Code == pgerrcode.CheckViolation || pgErr.Code == pgerrcode.NumericValueOutOfRange) {
 		return model.ErrInvalidWithdrawSum
 	}
 	if err != nil {
 		return fmt.Errorf("не сохранил списание: %w", err)
+	}
+
+	inserted, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("не проверил баланс: %w", err)
+	}
+	if inserted == 0 {
+		return model.ErrInsufficientFunds
 	}
 
 	if err := tx.Commit(); err != nil {

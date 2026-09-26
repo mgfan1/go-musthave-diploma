@@ -122,6 +122,53 @@ func TestPGWithdrawRoundsToKopecks(t *testing.T) {
 	}
 }
 
+func TestPGWithdrawComparesRoundedSum(t *testing.T) {
+	cases := []struct {
+		name    string
+		sum     model.Money
+		wantErr error
+		stored  string
+		balance model.Balance
+	}{
+		{name: "после округления равна балансу", sum: 100.004, stored: "100.00", balance: model.Balance{Current: 0, Withdrawn: 100}},
+		{name: "после округления больше баланса", sum: 100.006, wantErr: model.ErrInsufficientFunds, balance: model.Balance{Current: 100}},
+		{name: "не помещается в колонку", sum: 1e10, wantErr: model.ErrInsufficientFunds, balance: model.Balance{Current: 100}},
+		{name: "после округления не помещается в колонку", sum: 9999999999.995, wantErr: model.ErrInsufficientFunds, balance: model.Balance{Current: 100}},
+		{name: "огромная сумма", sum: 1e300, wantErr: model.ErrInsufficientFunds, balance: model.Balance{Current: 100}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s, db := newPGStorage(t)
+			alice := insertUser(t, db, "alice")
+			insertOrder(t, db, "1", alice, "PROCESSED", 100, time.Now())
+
+			err := s.Withdraw(t.Context(), alice, "2377225624", c.sum)
+			if c.wantErr != nil {
+				require.ErrorIs(t, err, c.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, c.stored, storedAmounts(t, db, alice))
+
+			b, err := s.Balance(t.Context(), alice)
+			require.NoError(t, err)
+			assert.Equal(t, c.balance, b)
+		})
+	}
+}
+
+func TestPGWithdrawTooLargeForColumn(t *testing.T) {
+	s, db := newPGStorage(t)
+	alice := insertUser(t, db, "alice")
+	insertOrder(t, db, "1", alice, "PROCESSED", 9999999999.99, time.Now())
+	insertOrder(t, db, "2", alice, "PROCESSED", 9999999999.99, time.Now())
+
+	err := s.Withdraw(t.Context(), alice, "2377225624", 1e10)
+	require.ErrorIs(t, err, model.ErrInvalidWithdrawSum, "баллов хватает, но сумма не помещается в колонку")
+	assert.Empty(t, storedAmounts(t, db, alice))
+}
+
 func TestPGWithdrawConcurrently(t *testing.T) {
 	ctx := t.Context()
 	s, db := newPGStorage(t)

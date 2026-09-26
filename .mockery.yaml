@@ -18,6 +18,7 @@ packages:
       UserRepository:
       OrderRepository:
       BalanceRepository:
+      TokenIssuer:
   github.com/mgfan1/go-musthave-diploma/internal/accrual:
     interfaces:
       Orders:

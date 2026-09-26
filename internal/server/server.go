@@ -14,6 +14,9 @@ import (
 const (
 	shutdownTimeout   = 5 * time.Second
 	readHeaderTimeout = 10 * time.Second
+	readTimeout       = 15 * time.Second
+	writeTimeout      = 30 * time.Second
+	idleTimeout       = time.Minute
 )
 
 // Server оборачивает http.Server и связывает его жизнь с контекстом.
@@ -23,10 +26,19 @@ type Server struct {
 }
 
 // New создаёт сервер, который будет слушать addr и передавать запросы handler.
+// Чтение запроса, запись ответа и простой соединения ограничены таймаутами,
+// чтобы медленный клиент не держал соединение бесконечно.
 func New(addr string, handler http.Handler, log *zap.Logger) *Server {
 	return &Server{
-		http: &http.Server{Addr: addr, Handler: handler, ReadHeaderTimeout: readHeaderTimeout},
-		log:  log,
+		http: &http.Server{
+			Addr:              addr,
+			Handler:           handler,
+			ReadHeaderTimeout: readHeaderTimeout,
+			ReadTimeout:       readTimeout,
+			WriteTimeout:      writeTimeout,
+			IdleTimeout:       idleTimeout,
+		},
+		log: log,
 	}
 }
 

@@ -21,7 +21,9 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/migrations"
 )
 
-// PGStorage работает с PostgreSQL через database/sql.
+// PGStorage хранит пользователей, заказы и списания в PostgreSQL через
+// database/sql и реализует все хранилища пакета service. Суммы лежат
+// в numeric(12,2), и складывает и сравнивает их сама база.
 type PGStorage struct {
 	db *sql.DB
 }

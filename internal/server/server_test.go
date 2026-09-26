@@ -30,6 +30,15 @@ func TestRunStopsOnCancel(t *testing.T) {
 	}
 }
 
+func TestNewSetsTimeouts(t *testing.T) {
+	srv := New("127.0.0.1:0", http.NotFoundHandler(), zap.NewNop())
+
+	assert.Equal(t, readHeaderTimeout, srv.http.ReadHeaderTimeout)
+	assert.Equal(t, readTimeout, srv.http.ReadTimeout)
+	assert.Equal(t, writeTimeout, srv.http.WriteTimeout)
+	assert.Equal(t, idleTimeout, srv.http.IdleTimeout)
+}
+
 func TestRunFailsOnBusyPort(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
