@@ -1,0 +1,15 @@
+with-expecter: false
+resolve-type-alias: false
+issue-845-fix: true
+disable-version-string: true
+dir: "{{.InterfaceDir}}/mocks"
+outpkg: mocks
+mockname: "{{.InterfaceName}}"
+filename: "{{.InterfaceName}}.go"
+packages:
+  github.com/mgfan1/go-musthave-diploma/internal/handler:
+    interfaces:
+      UserService:
+  github.com/mgfan1/go-musthave-diploma/internal/service:
+    interfaces:
+      UserRepository:

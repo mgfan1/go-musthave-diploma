@@ -14,11 +14,15 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 
+	"github.com/mgfan1/go-musthave-diploma/internal/auth"
 	"github.com/mgfan1/go-musthave-diploma/internal/config"
 	"github.com/mgfan1/go-musthave-diploma/internal/handler"
 	"github.com/mgfan1/go-musthave-diploma/internal/server"
+	"github.com/mgfan1/go-musthave-diploma/internal/service"
 	"github.com/mgfan1/go-musthave-diploma/internal/storage"
 )
+
+const tokenTTL = 24 * time.Hour
 
 func main() {
 	logger, err := zap.NewProduction()
@@ -56,11 +60,16 @@ func run(logger *zap.Logger) error {
 	db.SetMaxIdleConns(10)
 	db.SetConnMaxIdleTime(4 * time.Minute)
 
-	if _, err := storage.NewPGStorage(ctx, db, logger.With(zap.String("component", "storage"))); err != nil {
+	store, err := storage.NewPGStorage(ctx, db, logger.With(zap.String("component", "storage")))
+	if err != nil {
 		return err
 	}
 
-	router := handler.Router(logger.With(zap.String("component", "middleware")))
+	tokens := auth.NewTokens(cfg.JWTSecret, tokenTTL)
+	users := service.NewUsers(store, tokens)
+
+	api := handler.New(users, logger.With(zap.String("component", "handler")))
+	router := api.Router(logger.With(zap.String("component", "middleware")), tokens)
 	srv := server.New(cfg.Addr, router, logger.With(zap.String("component", "server")))
 
 	return srv.Run(ctx)

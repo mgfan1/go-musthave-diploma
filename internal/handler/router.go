@@ -1,4 +1,3 @@
-// Package handler реализует HTTP API системы лояльности Гофермарт.
 package handler
 
 import (
@@ -10,22 +9,29 @@ import (
 	"github.com/mgfan1/go-musthave-diploma/internal/middleware"
 )
 
-// Router собирает маршруты API с журналом запросов и сжатием.
-// Пока все маршруты отвечают 501.
-func Router(log *zap.Logger) chi.Router {
+// Router собирает маршруты API с журналом запросов и сжатием. Регистрация
+// и вход открыты всем, остальные маршруты требуют токена доступа, который
+// проверяет tokens. Токен проверяется до чтения тела, поэтому без него
+// защищённый маршрут отвечает 401 на любой запрос.
+func (h *Handler) Router(log *zap.Logger, tokens middleware.TokenParser) chi.Router {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logging(log))
 	r.Use(middleware.Gzip)
 
 	r.Route("/api/user", func(r chi.Router) {
-		r.Post("/register", notImplemented)
-		r.Post("/login", notImplemented)
-		r.Post("/orders", notImplemented)
-		r.Get("/orders", notImplemented)
-		r.Get("/balance", notImplemented)
-		r.Post("/balance/withdraw", notImplemented)
-		r.Get("/withdrawals", notImplemented)
+		r.Post("/register", h.register)
+		r.Post("/login", h.login)
+
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Auth(tokens))
+
+			r.Post("/orders", notImplemented)
+			r.Get("/orders", notImplemented)
+			r.Get("/balance", notImplemented)
+			r.Post("/balance/withdraw", notImplemented)
+			r.Get("/withdrawals", notImplemented)
+		})
 	})
 
 	return r
