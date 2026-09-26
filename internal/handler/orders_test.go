@@ -46,7 +46,7 @@ func TestUploadOrder(t *testing.T) {
 				orders.On("Upload", mock.Anything, int64(7), c.number).Return(c.created, c.err)
 			}
 
-			w := send(newRouter(mocks.NewUserService(t), orders), http.MethodPost, "/api/user/orders", c.body, bearer(t, 7))
+			w := send(newRouter(mocks.NewUserService(t), orders, mocks.NewBalanceService(t)), http.MethodPost, "/api/user/orders", c.body, bearer(t, 7))
 
 			assert.Equal(t, c.wantCode, w.Code)
 			if c.wantCode == http.StatusInternalServerError {
@@ -57,7 +57,7 @@ func TestUploadOrder(t *testing.T) {
 }
 
 func TestUploadOrderWithoutTokenIsUnauthorizedBeforeValidation(t *testing.T) {
-	w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t)), http.MethodPost, "/api/user/orders", "12345678902", "")
+	w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t), mocks.NewBalanceService(t)), http.MethodPost, "/api/user/orders", "12345678902", "")
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
@@ -74,7 +74,7 @@ func TestListOrders(t *testing.T) {
 		{Number: "346436439", Status: model.StatusInvalid, UploadedAt: time.Date(2020, 12, 9, 16, 9, 53, 0, msk)},
 	}, nil)
 
-	w := send(newRouter(mocks.NewUserService(t), orders), http.MethodGet, "/api/user/orders", "", bearer(t, 7))
+	w := send(newRouter(mocks.NewUserService(t), orders, mocks.NewBalanceService(t)), http.MethodGet, "/api/user/orders", "", bearer(t, 7))
 
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
@@ -105,7 +105,7 @@ func TestListOrdersEmpty(t *testing.T) {
 			req.Header.Set("Accept-Encoding", "gzip")
 			w := httptest.NewRecorder()
 
-			newRouter(mocks.NewUserService(t), orders).ServeHTTP(w, req)
+			newRouter(mocks.NewUserService(t), orders, mocks.NewBalanceService(t)).ServeHTTP(w, req)
 
 			assert.Equal(t, http.StatusNoContent, w.Code)
 			assert.Contains(t, w.Header().Get("Content-Type"), "application/json", "автотест проверяет Content-Type и на 204")
@@ -117,7 +117,7 @@ func TestListOrdersEmpty(t *testing.T) {
 
 func TestListOrdersFailures(t *testing.T) {
 	t.Run("без токена", func(t *testing.T) {
-		w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t)), http.MethodGet, "/api/user/orders", "", "")
+		w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t), mocks.NewBalanceService(t)), http.MethodGet, "/api/user/orders", "", "")
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
@@ -125,7 +125,7 @@ func TestListOrdersFailures(t *testing.T) {
 		orders := mocks.NewOrderService(t)
 		orders.On("List", mock.Anything, int64(7)).Return(nil, errors.New("база недоступна"))
 
-		w := send(newRouter(mocks.NewUserService(t), orders), http.MethodGet, "/api/user/orders", "", bearer(t, 7))
+		w := send(newRouter(mocks.NewUserService(t), orders, mocks.NewBalanceService(t)), http.MethodGet, "/api/user/orders", "", bearer(t, 7))
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 		assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())

@@ -11,10 +11,12 @@ packages:
     interfaces:
       UserService:
       OrderService:
+      BalanceService:
   github.com/mgfan1/go-musthave-diploma/internal/service:
     interfaces:
       UserRepository:
       OrderRepository:
+      BalanceRepository:
   github.com/mgfan1/go-musthave-diploma/internal/accrual:
     interfaces:
       Orders:

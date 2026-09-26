@@ -16,4 +16,10 @@ var (
 	// ErrOrderOwnedByOther возвращается, если номер заказа уже загрузил
 	// другой пользователь.
 	ErrOrderOwnedByOther = errors.New("заказ загружен другим пользователем")
+	// ErrInsufficientFunds возвращается, если на счету меньше баллов,
+	// чем пользователь хочет списать.
+	ErrInsufficientFunds = errors.New("на счету недостаточно баллов")
+	// ErrInvalidWithdrawSum возвращается, если сумма списания не положительная
+	// или после округления до копеек становится нулевой.
+	ErrInvalidWithdrawSum = errors.New("неверная сумма списания")
 )

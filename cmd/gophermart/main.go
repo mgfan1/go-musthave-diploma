@@ -70,6 +70,7 @@ func run(logger *zap.Logger) error {
 	tokens := auth.NewTokens(cfg.JWTSecret, tokenTTL)
 	users := service.NewUsers(store, tokens)
 	orders := service.NewOrders(store)
+	balance := service.NewBalance(store)
 
 	var wg sync.WaitGroup
 	if cfg.AccrualAddress == "" {
@@ -79,7 +80,7 @@ func run(logger *zap.Logger) error {
 		wg.Go(func() { poller.Run(ctx) })
 	}
 
-	api := handler.New(users, orders, logger.With(zap.String("component", "handler")))
+	api := handler.New(users, orders, balance, logger.With(zap.String("component", "handler")))
 	router := api.Router(logger.With(zap.String("component", "middleware")), tokens)
 	srv := server.New(cfg.Addr, router, logger.With(zap.String("component", "server")))
 

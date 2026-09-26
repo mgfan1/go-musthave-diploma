@@ -27,17 +27,30 @@ type OrderService interface {
 	List(ctx context.Context, userID int64) ([]model.Order, error)
 }
 
-// Handler обслуживает запросы HTTP API.
-type Handler struct {
-	users  UserService
-	orders OrderService
-	log    *zap.Logger
+// BalanceService описывает баланс пользователя и списание баллов.
+type BalanceService interface {
+	// Get возвращает баланс пользователя.
+	Get(ctx context.Context, userID int64) (model.Balance, error)
+	// Withdraw списывает баллы в счёт заказа. Возвращает
+	// model.ErrInvalidWithdrawSum, model.ErrInvalidOrderNumber
+	// или model.ErrInsufficientFunds, если списание невозможно.
+	Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error
+	// Withdrawals возвращает списания пользователя от новых к старым.
+	Withdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error)
 }
 
-// New создаёт обработчик API поверх сервисов пользователей users
-// и заказов orders.
-func New(users UserService, orders OrderService, log *zap.Logger) *Handler {
-	return &Handler{users: users, orders: orders, log: log}
+// Handler обслуживает запросы HTTP API.
+type Handler struct {
+	users   UserService
+	orders  OrderService
+	balance BalanceService
+	log     *zap.Logger
+}
+
+// New создаёт обработчик API поверх сервисов пользователей users,
+// заказов orders и баланса balance.
+func New(users UserService, orders OrderService, balance BalanceService, log *zap.Logger) *Handler {
+	return &Handler{users: users, orders: orders, balance: balance, log: log}
 }
 
 func currentUser(w http.ResponseWriter, r *http.Request) (int64, bool) {

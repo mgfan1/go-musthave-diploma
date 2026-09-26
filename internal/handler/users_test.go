@@ -32,7 +32,7 @@ func checkCredentialsCase(t *testing.T, method, path string, c credentialsCase) 
 	users := mocks.NewUserService(t)
 	users.On(method, mock.Anything, "gopher", "secret").Return(c.token, c.err)
 
-	w := send(newRouter(users, mocks.NewOrderService(t)), http.MethodPost, path, goodCredentials, "")
+	w := send(newRouter(users, mocks.NewOrderService(t), mocks.NewBalanceService(t)), http.MethodPost, path, goodCredentials, "")
 
 	assert.Equal(t, c.wantCode, w.Code)
 	if c.wantCode == http.StatusOK {
@@ -94,7 +94,7 @@ func TestCredentialsBadRequest(t *testing.T) {
 	for _, path := range []string{"/api/user/register", "/api/user/login"} {
 		for _, b := range bodies {
 			t.Run(path+" "+b.name, func(t *testing.T) {
-				w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t)), http.MethodPost, path, b.body, "")
+				w := send(newRouter(mocks.NewUserService(t), mocks.NewOrderService(t), mocks.NewBalanceService(t)), http.MethodPost, path, b.body, "")
 				assert.Equal(t, http.StatusBadRequest, w.Code)
 			})
 		}
@@ -109,11 +109,14 @@ func TestRegisterTokenOpensProtectedRoutes(t *testing.T) {
 	users := mocks.NewUserService(t)
 	users.On("Register", mock.Anything, "gopher", "secret").Return(token, nil)
 
-	router := New(users, mocks.NewOrderService(t), zap.NewNop()).Router(zap.NewNop(), tokens)
+	balance := mocks.NewBalanceService(t)
+	balance.On("Get", mock.Anything, int64(7)).Return(model.Balance{}, nil)
+
+	router := New(users, mocks.NewOrderService(t), balance, zap.NewNop()).Router(zap.NewNop(), tokens)
 
 	reg := send(router, http.MethodPost, "/api/user/register", goodCredentials, "")
 	require.Equal(t, http.StatusOK, reg.Code)
 
 	w := send(router, http.MethodGet, "/api/user/balance", "", reg.Header().Get("Authorization"))
-	assert.NotEqual(t, http.StatusUnauthorized, w.Code, "заголовок из ответа на регистрацию должен приниматься как есть")
+	assert.Equal(t, http.StatusOK, w.Code, "заголовок из ответа на регистрацию должен приниматься как есть")
 }

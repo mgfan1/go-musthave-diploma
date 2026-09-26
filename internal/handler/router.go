@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"net/http"
-
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
@@ -28,15 +26,11 @@ func (h *Handler) Router(log *zap.Logger, tokens middleware.TokenParser) chi.Rou
 
 			r.Post("/orders", h.uploadOrder)
 			r.Get("/orders", h.listOrders)
-			r.Get("/balance", notImplemented)
-			r.Post("/balance/withdraw", notImplemented)
-			r.Get("/withdrawals", notImplemented)
+			r.Get("/balance", h.getBalance)
+			r.Post("/balance/withdraw", h.withdraw)
+			r.Get("/withdrawals", h.listWithdrawals)
 		})
 	})
 
 	return r
-}
-
-func notImplemented(w http.ResponseWriter, _ *http.Request) {
-	http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
 }
