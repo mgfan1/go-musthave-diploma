@@ -25,8 +25,12 @@ func (h *Handler) uploadOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "неверный формат запроса", http.StatusBadRequest)
+		return
+	}
 	number := strings.TrimSpace(string(body))
-	if err != nil || number == "" {
+	if number == "" {
 		http.Error(w, "неверный формат запроса", http.StatusBadRequest)
 		return
 	}
