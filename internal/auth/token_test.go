@@ -65,3 +65,16 @@ func TestTokensParseRejects(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkTokensParse(b *testing.B) {
+	tokens := NewTokens(testSecret, time.Hour)
+	token, err := tokens.Issue(42)
+	require.NoError(b, err)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := tokens.Parse(token); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

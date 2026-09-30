@@ -39,3 +39,23 @@ func TestValid(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkValid(b *testing.B) {
+	cases := []struct {
+		name   string
+		number string
+	}{
+		{"пример из ТЗ", "12345678903"},
+		{"номер карты", "4561261212345467"},
+		{"длиннее int64", strings.Repeat("0", 40) + "12345678903"},
+	}
+
+	for _, c := range cases {
+		b.Run(c.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				Valid(c.number)
+			}
+		})
+	}
+}

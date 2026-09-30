@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func gzipBody(t *testing.T, body string) *bytes.Buffer {
+func gzipBody(t testing.TB, body string) *bytes.Buffer {
 	t.Helper()
 
 	var buf bytes.Buffer
@@ -218,4 +218,37 @@ func TestGzipUnwrap(t *testing.T) {
 	})).ServeHTTP(dw, req)
 
 	assert.True(t, dw.enabled, "ResponseController не добрался до исходного писателя")
+}
+
+func BenchmarkGzip(b *testing.B) {
+	order := `{"number":"12345678903","status":"PROCESSED","accrual":500,"uploaded_at":"2020-12-10T15:15:45+03:00"}`
+	body := "[" + strings.Repeat(order+",", 99) + order + "]"
+
+	b.Run("сжатие ответа", func(b *testing.B) {
+		h := Gzip(respond("application/json", http.StatusOK, body))
+		req := httptest.NewRequest(http.MethodGet, "/api/user/orders", nil)
+		req.Header.Set("Accept-Encoding", "gzip")
+
+		b.ReportAllocs()
+		b.SetBytes(int64(len(body)))
+		for b.Loop() {
+			h.ServeHTTP(httptest.NewRecorder(), req)
+		}
+	})
+
+	b.Run("распаковка запроса", func(b *testing.B) {
+		compressed := gzipBody(b, body).Bytes()
+		h := Gzip(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+		}))
+		req := httptest.NewRequest(http.MethodPost, "/api/user/orders", nil)
+		req.Header.Set("Content-Encoding", "gzip")
+
+		b.ReportAllocs()
+		b.SetBytes(int64(len(body)))
+		for b.Loop() {
+			req.Body = io.NopCloser(bytes.NewReader(compressed))
+			h.ServeHTTP(httptest.NewRecorder(), req)
+		}
+	})
 }
