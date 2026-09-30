@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -28,9 +29,9 @@ func newRouter(users UserService, orders OrderService, balance BalanceService) h
 	return New(users, orders, balance, zap.NewNop()).Router(zap.NewNop(), auth.NewTokens(testSecret, time.Hour))
 }
 
-func loggedRouter(users UserService, orders OrderService, balance BalanceService, timeout time.Duration) (http.Handler, *observer.ObservedLogs) {
+func loggedRouter(users UserService, orders OrderService, balance BalanceService) (http.Handler, *observer.ObservedLogs) {
 	core, logs := observer.New(zap.InfoLevel)
-	router := New(users, orders, balance, zap.NewNop()).router(zap.New(core), auth.NewTokens(testSecret, time.Hour), timeout)
+	router := New(users, orders, balance, zap.NewNop()).Router(zap.New(core), auth.NewTokens(testSecret, time.Hour))
 	return router, logs
 }
 
@@ -178,7 +179,7 @@ func TestRouterRecoversPanic(t *testing.T) {
 	users := newMockUserService(t)
 	users.On("Register", mock.Anything, "gopher", "secret").Run(func(mock.Arguments) { panic("boom") })
 
-	router, logs := loggedRouter(users, newMockOrderService(t), newMockBalanceService(t), handlerTimeout)
+	router, logs := loggedRouter(users, newMockOrderService(t), newMockBalanceService(t))
 
 	w := send(router, http.MethodPost, "/api/user/register", goodCredentials, "")
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -188,59 +189,67 @@ func TestRouterRecoversPanic(t *testing.T) {
 }
 
 func TestRouterRecoversPanicAfterTimeout(t *testing.T) {
-	balance := newMockBalanceService(t)
-	balance.On("Get", mock.Anything, int64(7)).
-		Run(func(args mock.Arguments) {
-			<-args.Get(0).(context.Context).Done()
-			panic("boom")
-		})
+	synctest.Test(t, func(t *testing.T) {
+		balance := newMockBalanceService(t)
+		balance.On("Get", mock.Anything, int64(7)).
+			Run(func(args mock.Arguments) {
+				<-args.Get(0).(context.Context).Done()
+				panic("boom")
+			})
 
-	router, logs := loggedRouter(newMockUserService(t), newMockOrderService(t), balance, 50*time.Millisecond)
+		router, logs := loggedRouter(newMockUserService(t), newMockOrderService(t), balance)
 
-	w := send(router, http.MethodGet, "/api/user/balance", "", bearer(t, 7))
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-	assert.Equal(t, int64(http.StatusServiceUnavailable), loggedStatus(t, logs))
+		w := send(router, http.MethodGet, "/api/user/balance", "", bearer(t, 7))
+		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+		assert.Equal(t, int64(http.StatusServiceUnavailable), loggedStatus(t, logs))
 
-	require.Eventually(t, func() bool {
-		return logs.FilterMessage(panicMessage).Len() == 1
-	}, time.Second, time.Millisecond, "паника после истечения срока не попала в журнал")
-	assert.Contains(t, panicStack(t, logs), "(*mockBalanceService).Get")
+		synctest.Wait()
+		require.Equal(t, 1, logs.FilterMessage(panicMessage).Len(), "паника после истечения срока не попала в журнал")
+		assert.Contains(t, panicStack(t, logs), "(*mockBalanceService).Get")
+	})
 }
 
 func TestRouterLimitsHandlerTime(t *testing.T) {
-	var (
-		deadline time.Time
-		ok       bool
-	)
-	balance := newMockBalanceService(t)
-	balance.On("Get", mock.Anything, int64(7)).
-		Run(func(args mock.Arguments) { deadline, ok = args.Get(0).(context.Context).Deadline() }).
-		Return(model.Balance{}, nil)
+	synctest.Test(t, func(t *testing.T) {
+		var (
+			deadline time.Time
+			ok       bool
+		)
+		balance := newMockBalanceService(t)
+		balance.On("Get", mock.Anything, int64(7)).
+			Run(func(args mock.Arguments) { deadline, ok = args.Get(0).(context.Context).Deadline() }).
+			Return(model.Balance{}, nil)
 
-	send(newRouter(newMockUserService(t), newMockOrderService(t), balance), http.MethodGet, "/api/user/balance", "", bearer(t, 7))
+		router := newRouter(newMockUserService(t), newMockOrderService(t), balance)
+		want := time.Now().Add(handlerTimeout)
 
-	require.True(t, ok, "у контекста обработчика нет дедлайна")
-	assert.WithinDuration(t, time.Now().Add(handlerTimeout), deadline, time.Second)
+		send(router, http.MethodGet, "/api/user/balance", "", bearer(t, 7))
+
+		require.True(t, ok, "у контекста обработчика нет дедлайна")
+		assert.Equal(t, want, deadline)
+	})
 }
 
 func TestRouterLogsTimeout(t *testing.T) {
-	finished := make(chan struct{})
-	balance := newMockBalanceService(t)
-	balance.On("Get", mock.Anything, int64(7)).
-		Run(func(args mock.Arguments) {
-			<-args.Get(0).(context.Context).Done()
-			close(finished)
-		}).
-		Return(model.Balance{}, context.DeadlineExceeded)
+	synctest.Test(t, func(t *testing.T) {
+		finished := make(chan struct{})
+		balance := newMockBalanceService(t)
+		balance.On("Get", mock.Anything, int64(7)).
+			Run(func(args mock.Arguments) {
+				<-args.Get(0).(context.Context).Done()
+				close(finished)
+			}).
+			Return(model.Balance{}, context.DeadlineExceeded)
 
-	router, logs := loggedRouter(newMockUserService(t), newMockOrderService(t), balance, 50*time.Millisecond)
+		router, logs := loggedRouter(newMockUserService(t), newMockOrderService(t), balance)
 
-	w := send(router, http.MethodGet, "/api/user/balance", "", bearer(t, 7))
-	<-finished
+		w := send(router, http.MethodGet, "/api/user/balance", "", bearer(t, 7))
+		<-finished
 
-	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-	assert.Equal(t, http.StatusText(http.StatusServiceUnavailable), w.Body.String())
-	assert.Equal(t, int64(http.StatusServiceUnavailable), loggedStatus(t, logs))
+		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+		assert.Equal(t, http.StatusText(http.StatusServiceUnavailable), w.Body.String())
+		assert.Equal(t, int64(http.StatusServiceUnavailable), loggedStatus(t, logs))
+	})
 }
 
 func gzipped(t *testing.T, body string) *bytes.Buffer {

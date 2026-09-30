@@ -22,10 +22,6 @@ const (
 // десяти секунд даёт 503. Тело запроса читается не больше чем на килобайт
 // после распаковки.
 func (h *Handler) Router(log *zap.Logger, tokens middleware.TokenParser) http.Handler {
-	return h.router(log, tokens, handlerTimeout)
-}
-
-func (h *Handler) router(log *zap.Logger, tokens middleware.TokenParser, timeout time.Duration) http.Handler {
 	public := func(next http.HandlerFunc) http.Handler {
 		return middleware.Gzip(http.MaxBytesHandler(next, maxRequestBody))
 	}
@@ -42,6 +38,6 @@ func (h *Handler) router(log *zap.Logger, tokens middleware.TokenParser, timeout
 	mux.Handle("POST /api/user/balance/withdraw", protected(h.withdraw))
 	mux.Handle("GET /api/user/withdrawals", protected(h.listWithdrawals))
 
-	timed := http.TimeoutHandler(middleware.Recover(log)(mux), timeout, http.StatusText(http.StatusServiceUnavailable))
+	timed := http.TimeoutHandler(middleware.Recover(log)(mux), handlerTimeout, http.StatusText(http.StatusServiceUnavailable))
 	return middleware.Logging(log)(timed)
 }
