@@ -1,0 +1,25 @@
+with-expecter: false
+resolve-type-alias: false
+issue-845-fix: true
+disable-version-string: true
+inpackage: true
+dir: "{{.InterfaceDir}}"
+outpkg: "{{.PackageName}}"
+mockname: "mock{{.InterfaceName}}"
+filename: "mock_{{.InterfaceNameSnake}}_test.go"
+packages:
+  github.com/mgfan1/go-musthave-diploma/internal/handler:
+    interfaces:
+      UserService:
+      OrderService:
+      BalanceService:
+  github.com/mgfan1/go-musthave-diploma/internal/service:
+    interfaces:
+      UserRepository:
+      OrderRepository:
+      BalanceRepository:
+      TokenIssuer:
+  github.com/mgfan1/go-musthave-diploma/internal/accrual:
+    interfaces:
+      Orders:
+      Fetcher:
