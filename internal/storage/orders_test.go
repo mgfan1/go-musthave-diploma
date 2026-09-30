@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -386,5 +388,33 @@ func TestPGUserOrdersCanceledContext(t *testing.T) {
 	require.Len(t, errs, 1, "при отменённом контексте обход отдаёт только ошибку")
 	assert.ErrorIs(t, errs[0], context.Canceled)
 	assert.ErrorContains(t, errs[0], "не прочитал заказы")
+	assert.Zero(t, db.Stats().InUse)
+}
+
+func TestPGOrdersErrorAfterFirstRow(t *testing.T) {
+	db := openTestDB(t)
+
+	orders := queryRows(t.Context(), db, "заказы", orderFields,
+		`SELECT n::text, 'NEW', NULL, now()
+		 FROM generate_series(1, 3) AS n
+		 WHERE 1 / (2 - n) > 0`)
+
+	var numbers []string
+	var errs []error
+	for o, err := range orders {
+		errs = append(errs, err)
+		if err == nil {
+			numbers = append(numbers, o.Number)
+		}
+	}
+
+	assert.Equal(t, []string{"1"}, numbers, "строка до сбоя доходит до вызывающего")
+	require.Len(t, errs, 2, "сбой на второй строке приходит отдельным последним элементом")
+	require.NoError(t, errs[0])
+
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, errs[1], &pgErr)
+	assert.Equal(t, pgerrcode.DivisionByZero, pgErr.Code)
+	assert.ErrorContains(t, errs[1], "не прочитал заказы")
 	assert.Zero(t, db.Stats().InUse)
 }
