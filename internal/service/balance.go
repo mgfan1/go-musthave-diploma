@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"iter"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/luhn"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
@@ -15,8 +16,8 @@ type BalanceRepository interface {
 	// model.ErrInsufficientFunds, model.ErrInvalidWithdrawSum или
 	// model.ErrUserNotFound, если списание невозможно.
 	Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error
-	// UserWithdrawals возвращает списания пользователя от новых к старым.
-	UserWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error)
+	// UserWithdrawals отдаёт списания пользователя от новых к старым.
+	UserWithdrawals(ctx context.Context, userID int64) iter.Seq2[model.Withdrawal, error]
 }
 
 // Balance показывает баланс и списания пользователя и списывает баллы.
@@ -49,7 +50,7 @@ func (s *Balance) Withdraw(ctx context.Context, userID int64, order string, sum 
 	return s.repo.Withdraw(ctx, userID, order, sum)
 }
 
-// Withdrawals возвращает списания пользователя userID от новых к старым.
-func (s *Balance) Withdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
+// Withdrawals отдаёт списания пользователя userID от новых к старым.
+func (s *Balance) Withdrawals(ctx context.Context, userID int64) iter.Seq2[model.Withdrawal, error] {
 	return s.repo.UserWithdrawals(ctx, userID)
 }

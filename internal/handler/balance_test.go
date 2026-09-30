@@ -121,11 +121,11 @@ func TestListWithdrawals(t *testing.T) {
 	msk := time.FixedZone("MSK", 3*60*60)
 
 	balance := newMockBalanceService(t)
-	balance.On("Withdrawals", mock.Anything, int64(7)).Return([]model.Withdrawal{
+	balance.On("Withdrawals", mock.Anything, int64(7)).Return(seqOf([]model.Withdrawal{
 		{Order: "2377225624", Sum: 500, ProcessedAt: time.Date(2020, 12, 9, 16, 9, 57, 0, msk)},
 		{Order: "12345678903", Sum: 729.98, ProcessedAt: time.Date(2020, 12, 9, 16, 5, 1, 500, msk)},
 		{Order: "79927398713", Sum: 0.01, ProcessedAt: time.Date(2020, 12, 8, 10, 0, 0, 0, time.UTC)},
-	}, nil)
+	}, nil))
 
 	w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/withdrawals", "", bearer(t, 7))
 
@@ -139,40 +139,40 @@ func TestListWithdrawals(t *testing.T) {
 }
 
 func TestListWithdrawalsEmpty(t *testing.T) {
+	balance := newMockBalanceService(t)
+	balance.On("Withdrawals", mock.Anything, int64(7)).Return(seqOf[model.Withdrawal](nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
+	req.Header.Set("Authorization", bearer(t, 7))
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+
+	balanceRouter(t, balance).ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "application/json", "автотест разбирает тело только с JSON в Content-Type")
+	assert.Empty(t, w.Header().Get("Content-Encoding"))
+	assert.Empty(t, w.Body.String())
+}
+
+func TestListWithdrawalsFailure(t *testing.T) {
 	cases := []struct {
 		name        string
 		withdrawals []model.Withdrawal
 	}{
-		{"пустой срез", []model.Withdrawal{}},
-		{"nil вместо среза", nil},
+		{"сбой до первой строки", nil},
+		{"сбой посреди чтения", []model.Withdrawal{{Order: "2377225624", Sum: 500, ProcessedAt: time.Now()}}},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			balance := newMockBalanceService(t)
-			balance.On("Withdrawals", mock.Anything, int64(7)).Return(c.withdrawals, nil)
+			balance.On("Withdrawals", mock.Anything, int64(7)).Return(seqOf(c.withdrawals, errors.New("база недоступна")))
 
-			req := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
-			req.Header.Set("Authorization", bearer(t, 7))
-			req.Header.Set("Accept-Encoding", "gzip")
-			w := httptest.NewRecorder()
+			w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/withdrawals", "", bearer(t, 7))
 
-			balanceRouter(t, balance).ServeHTTP(w, req)
-
-			assert.Equal(t, http.StatusNoContent, w.Code)
-			assert.Contains(t, w.Header().Get("Content-Type"), "application/json", "автотест разбирает тело только с JSON в Content-Type")
-			assert.Empty(t, w.Header().Get("Content-Encoding"))
-			assert.Empty(t, w.Body.String())
+			assert.Equal(t, http.StatusInternalServerError, w.Code)
+			assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String(), "прочитанная часть списка не уходит клиенту")
 		})
 	}
-}
-
-func TestListWithdrawalsFailure(t *testing.T) {
-	balance := newMockBalanceService(t)
-	balance.On("Withdrawals", mock.Anything, int64(7)).Return(nil, errors.New("база недоступна"))
-
-	w := send(balanceRouter(t, balance), http.MethodGet, "/api/user/withdrawals", "", bearer(t, 7))
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
 }

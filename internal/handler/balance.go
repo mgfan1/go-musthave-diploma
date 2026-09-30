@@ -77,24 +77,23 @@ func (h *Handler) listWithdrawals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	withdrawals, err := h.balance.Withdrawals(r.Context(), userID)
+	resp, err := collect(h.balance.Withdrawals(r.Context(), userID), newWithdrawalResponse)
 	if err != nil {
 		h.internalError(w, r, "не прочитал списания", err)
 		return
 	}
-	if len(withdrawals) == 0 {
+	if len(resp) == 0 {
 		h.writeJSON(w, r, http.StatusNoContent, nil)
 		return
 	}
 
-	resp := make([]withdrawalResponse, 0, len(withdrawals))
-	for _, wd := range withdrawals {
-		resp = append(resp, withdrawalResponse{
-			Order:       wd.Order,
-			Sum:         wd.Sum,
-			ProcessedAt: wd.ProcessedAt.Format(time.RFC3339),
-		})
-	}
-
 	h.writeJSON(w, r, http.StatusOK, resp)
+}
+
+func newWithdrawalResponse(wd model.Withdrawal) withdrawalResponse {
+	return withdrawalResponse{
+		Order:       wd.Order,
+		Sum:         wd.Sum,
+		ProcessedAt: wd.ProcessedAt.Format(time.RFC3339),
+	}
 }

@@ -65,12 +65,12 @@ func TestListOrders(t *testing.T) {
 	zero := model.Money(0)
 
 	orders := newMockOrderService(t)
-	orders.On("List", mock.Anything, int64(7)).Return([]model.Order{
+	orders.On("List", mock.Anything, int64(7)).Return(seqOf([]model.Order{
 		{Number: "9278923470", Status: model.StatusProcessed, Accrual: &accrual, UploadedAt: time.Date(2020, 12, 10, 15, 15, 45, 0, msk)},
 		{Number: "18", Status: model.StatusProcessed, Accrual: &zero, UploadedAt: time.Date(2020, 12, 10, 15, 14, 0, 0, msk)},
 		{Number: "12345678903", Status: model.StatusProcessing, UploadedAt: time.Date(2020, 12, 10, 15, 12, 1, 500, msk)},
 		{Number: "346436439", Status: model.StatusInvalid, UploadedAt: time.Date(2020, 12, 9, 16, 9, 53, 0, msk)},
-	}, nil)
+	}, nil))
 
 	w := send(newRouter(newMockUserService(t), orders, newMockBalanceService(t)), http.MethodGet, "/api/user/orders", "", bearer(t, 7))
 
@@ -85,40 +85,40 @@ func TestListOrders(t *testing.T) {
 }
 
 func TestListOrdersEmpty(t *testing.T) {
+	orders := newMockOrderService(t)
+	orders.On("List", mock.Anything, int64(7)).Return(seqOf[model.Order](nil, nil))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/user/orders", nil)
+	req.Header.Set("Authorization", bearer(t, 7))
+	req.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+
+	newRouter(newMockUserService(t), orders, newMockBalanceService(t)).ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "application/json", "автотест проверяет Content-Type и на 204")
+	assert.Empty(t, w.Header().Get("Content-Encoding"))
+	assert.Empty(t, w.Body.String())
+}
+
+func TestListOrdersFailure(t *testing.T) {
 	cases := []struct {
 		name   string
 		orders []model.Order
 	}{
-		{"пустой срез", []model.Order{}},
-		{"nil вместо среза", nil},
+		{"сбой до первой строки", nil},
+		{"сбой посреди чтения", []model.Order{{Number: "12345678903", Status: model.StatusNew, UploadedAt: time.Now()}}},
 	}
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			orders := newMockOrderService(t)
-			orders.On("List", mock.Anything, int64(7)).Return(c.orders, nil)
+			orders.On("List", mock.Anything, int64(7)).Return(seqOf(c.orders, errors.New("база недоступна")))
 
-			req := httptest.NewRequest(http.MethodGet, "/api/user/orders", nil)
-			req.Header.Set("Authorization", bearer(t, 7))
-			req.Header.Set("Accept-Encoding", "gzip")
-			w := httptest.NewRecorder()
+			w := send(newRouter(newMockUserService(t), orders, newMockBalanceService(t)), http.MethodGet, "/api/user/orders", "", bearer(t, 7))
 
-			newRouter(newMockUserService(t), orders, newMockBalanceService(t)).ServeHTTP(w, req)
-
-			assert.Equal(t, http.StatusNoContent, w.Code)
-			assert.Contains(t, w.Header().Get("Content-Type"), "application/json", "автотест проверяет Content-Type и на 204")
-			assert.Empty(t, w.Header().Get("Content-Encoding"))
-			assert.Empty(t, w.Body.String())
+			assert.Equal(t, http.StatusInternalServerError, w.Code)
+			assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String(), "прочитанная часть списка не уходит клиенту")
 		})
 	}
-}
-
-func TestListOrdersFailure(t *testing.T) {
-	orders := newMockOrderService(t)
-	orders.On("List", mock.Anything, int64(7)).Return(nil, errors.New("база недоступна"))
-
-	w := send(newRouter(newMockUserService(t), orders, newMockBalanceService(t)), http.MethodGet, "/api/user/orders", "", bearer(t, 7))
-
-	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, http.StatusText(http.StatusInternalServerError)+"\n", w.Body.String())
 }

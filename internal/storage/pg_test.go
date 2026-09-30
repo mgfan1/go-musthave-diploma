@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"iter"
 	"net"
 	"os"
 	"syscall"
@@ -60,6 +61,18 @@ func insertUser(t *testing.T, db *sql.DB, login string) int64 {
 	require.NoError(t, err)
 
 	return id
+}
+
+func collect[T any](t *testing.T, seq iter.Seq2[T, error]) []T {
+	t.Helper()
+
+	var items []T
+	for item, err := range seq {
+		require.NoError(t, err)
+		items = append(items, item)
+	}
+
+	return items
 }
 
 func TestPGMigrationsAreIdempotent(t *testing.T) {

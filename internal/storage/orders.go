@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"iter"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -45,34 +46,19 @@ func (s *PGStorage) CreateOrder(ctx context.Context, userID int64, number string
 	return ownerID, false, nil
 }
 
-// UserOrders возвращает заказы пользователя userID от новых к старым.
-// Если заказов нет, возвращает пустой срез.
-func (s *PGStorage) UserOrders(ctx context.Context, userID int64) ([]model.Order, error) {
-	rows, err := s.db.QueryContext(ctx,
+// UserOrders отдаёт заказы пользователя userID от новых к старым.
+func (s *PGStorage) UserOrders(ctx context.Context, userID int64) iter.Seq2[model.Order, error] {
+	return queryRows(ctx, s.db, "заказы", orderFields,
 		`SELECT number, status, accrual, uploaded_at
 		 FROM orders
 		 WHERE user_id = $1
 		 ORDER BY uploaded_at DESC, id DESC`,
 		userID,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("не прочитал заказы: %w", err)
-	}
-	defer rows.Close()
+}
 
-	orders := make([]model.Order, 0)
-	for rows.Next() {
-		var o model.Order
-		if err := rows.Scan(&o.Number, &o.Status, &o.Accrual, &o.UploadedAt); err != nil {
-			return nil, fmt.Errorf("не прочитал заказ: %w", err)
-		}
-		orders = append(orders, o)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("не прочитал заказы: %w", err)
-	}
-
-	return orders, nil
+func orderFields(o *model.Order) []any {
+	return []any{&o.Number, &o.Status, &o.Accrual, &o.UploadedAt}
 }
 
 // ClaimPendingOrders выдаёт на опрос до limit заказов в статусах NEW

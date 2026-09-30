@@ -80,9 +80,12 @@ func TestListWithdrawals(t *testing.T) {
 	want := []model.Withdrawal{{Order: "2377225624", Sum: 500, ProcessedAt: time.Now()}}
 
 	repo := newMockBalanceRepository(t)
-	repo.On("UserWithdrawals", mock.Anything, int64(7)).Return(want, nil)
+	repo.On("UserWithdrawals", mock.Anything, int64(7)).Return(seqOf(want, nil))
 
-	got, err := NewBalance(repo).Withdrawals(t.Context(), 7)
-	require.NoError(t, err)
+	var got []model.Withdrawal
+	for w, err := range NewBalance(repo).Withdrawals(t.Context(), 7) {
+		require.NoError(t, err)
+		got = append(got, w)
+	}
 	assert.Equal(t, want, got)
 }

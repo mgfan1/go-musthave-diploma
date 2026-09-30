@@ -239,8 +239,7 @@ func TestPGUserWithdrawals(t *testing.T) {
 	insertWithdrawal(t, db, alice, "346436439", 42, base)
 	insertWithdrawal(t, db, bob, "18", 1, base.Add(3*time.Minute))
 
-	got, err := s.UserWithdrawals(ctx, alice)
-	require.NoError(t, err)
+	got := collect(t, s.UserWithdrawals(ctx, alice))
 
 	want := []model.Withdrawal{
 		{Order: "12345678903", Sum: 0.01, ProcessedAt: base.Add(2 * time.Minute)},
@@ -260,8 +259,5 @@ func TestPGUserWithdrawalsEmpty(t *testing.T) {
 	s, db := newPGStorage(t)
 	alice := insertUser(t, db, "alice")
 
-	withdrawals, err := s.UserWithdrawals(t.Context(), alice)
-	require.NoError(t, err)
-	assert.NotNil(t, withdrawals)
-	assert.Empty(t, withdrawals)
+	assert.Empty(t, collect(t, s.UserWithdrawals(t.Context(), alice)))
 }

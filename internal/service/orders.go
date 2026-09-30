@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"iter"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/luhn"
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
@@ -15,8 +16,8 @@ type OrderRepository interface {
 	// не меняет. Если пользователя нет, а номер новый, возвращает
 	// model.ErrUserNotFound.
 	CreateOrder(ctx context.Context, userID int64, number string) (int64, bool, error)
-	// UserOrders возвращает заказы пользователя от новых к старым.
-	UserOrders(ctx context.Context, userID int64) ([]model.Order, error)
+	// UserOrders отдаёт заказы пользователя от новых к старым.
+	UserOrders(ctx context.Context, userID int64) iter.Seq2[model.Order, error]
 	// ClaimPendingOrders выдаёт на опрос до limit незавершённых заказов,
 	// которые дольше остальных не опрашивались, и возвращает их номера.
 	ClaimPendingOrders(ctx context.Context, limit int) ([]string, error)
@@ -57,8 +58,8 @@ func (s *Orders) Upload(ctx context.Context, userID int64, number string) (bool,
 	return created, nil
 }
 
-// List возвращает заказы пользователя userID от новых к старым.
-func (s *Orders) List(ctx context.Context, userID int64) ([]model.Order, error) {
+// List отдаёт заказы пользователя userID от новых к старым.
+func (s *Orders) List(ctx context.Context, userID int64) iter.Seq2[model.Order, error] {
 	return s.repo.UserOrders(ctx, userID)
 }
 

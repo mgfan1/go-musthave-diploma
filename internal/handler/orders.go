@@ -58,25 +58,24 @@ func (h *Handler) listOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orders, err := h.orders.List(r.Context(), userID)
+	resp, err := collect(h.orders.List(r.Context(), userID), newOrderResponse)
 	if err != nil {
 		h.internalError(w, r, "не прочитал заказы", err)
 		return
 	}
-	if len(orders) == 0 {
+	if len(resp) == 0 {
 		h.writeJSON(w, r, http.StatusNoContent, nil)
 		return
 	}
 
-	resp := make([]orderResponse, 0, len(orders))
-	for _, o := range orders {
-		resp = append(resp, orderResponse{
-			Number:     o.Number,
-			Status:     string(o.Status),
-			Accrual:    o.Accrual,
-			UploadedAt: o.UploadedAt.Format(time.RFC3339),
-		})
-	}
-
 	h.writeJSON(w, r, http.StatusOK, resp)
+}
+
+func newOrderResponse(o model.Order) orderResponse {
+	return orderResponse{
+		Number:     o.Number,
+		Status:     string(o.Status),
+		Accrual:    o.Accrual,
+		UploadedAt: o.UploadedAt.Format(time.RFC3339),
+	}
 }

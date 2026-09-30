@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"iter"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -98,32 +99,17 @@ func (s *PGStorage) Withdraw(ctx context.Context, userID int64, order string, su
 	return nil
 }
 
-// UserWithdrawals возвращает списания пользователя userID от новых
-// к старым. Если списаний нет, возвращает пустой срез.
-func (s *PGStorage) UserWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
-	rows, err := s.db.QueryContext(ctx,
+// UserWithdrawals отдаёт списания пользователя userID от новых к старым.
+func (s *PGStorage) UserWithdrawals(ctx context.Context, userID int64) iter.Seq2[model.Withdrawal, error] {
+	return queryRows(ctx, s.db, "списания", withdrawalFields,
 		`SELECT order_number, amount, processed_at
 		 FROM withdrawals
 		 WHERE user_id = $1
 		 ORDER BY processed_at DESC, id DESC`,
 		userID,
 	)
-	if err != nil {
-		return nil, fmt.Errorf("не прочитал списания: %w", err)
-	}
-	defer rows.Close()
+}
 
-	withdrawals := make([]model.Withdrawal, 0)
-	for rows.Next() {
-		var w model.Withdrawal
-		if err := rows.Scan(&w.Order, &w.Sum, &w.ProcessedAt); err != nil {
-			return nil, fmt.Errorf("не прочитал списание: %w", err)
-		}
-		withdrawals = append(withdrawals, w)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("не прочитал списания: %w", err)
-	}
-
-	return withdrawals, nil
+func withdrawalFields(w *model.Withdrawal) []any {
+	return []any{&w.Order, &w.Sum, &w.ProcessedAt}
 }

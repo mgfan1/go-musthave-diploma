@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"strconv"
 	"sync"
@@ -154,8 +155,7 @@ func TestPGUserOrders(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	orders, err := s.UserOrders(ctx, alice)
-	require.NoError(t, err)
+	orders := collect(t, s.UserOrders(ctx, alice))
 	require.Len(t, orders, 3, "чужие заказы в список не попадают")
 
 	assert.Equal(t, []string{"9278923470", "18", "12345678903"},
@@ -340,8 +340,51 @@ func TestPGUserOrdersEmpty(t *testing.T) {
 	s, db := newPGStorage(t)
 	alice := insertUser(t, db, "alice")
 
-	orders, err := s.UserOrders(t.Context(), alice)
-	require.NoError(t, err)
-	assert.NotNil(t, orders)
-	assert.Empty(t, orders)
+	assert.Empty(t, collect(t, s.UserOrders(t.Context(), alice)))
+}
+
+func TestPGUserOrdersQueriesOnEachRange(t *testing.T) {
+	s, db := newPGStorage(t)
+	alice := insertUser(t, db, "alice")
+	insertOrder(t, db, "12345678903", alice, "NEW", nil, time.Now().Add(-time.Minute))
+
+	orders := s.UserOrders(t.Context(), alice)
+	require.Len(t, collect(t, orders), 1)
+
+	insertOrder(t, db, "9278923470", alice, "NEW", nil, time.Now())
+	assert.Len(t, collect(t, orders), 2, "повторный обход видит заказ, добавленный после первого")
+}
+
+func TestPGUserOrdersBreakReleasesConnection(t *testing.T) {
+	s, db := newPGStorage(t)
+	alice := insertUser(t, db, "alice")
+	insertOrder(t, db, "12345678903", alice, "NEW", nil, time.Now().Add(-time.Minute))
+	insertOrder(t, db, "9278923470", alice, "NEW", nil, time.Now())
+
+	for _, err := range s.UserOrders(t.Context(), alice) {
+		require.NoError(t, err)
+		assert.Equal(t, 1, db.Stats().InUse, "во время обхода запрос держит соединение")
+		break
+	}
+
+	assert.Zero(t, db.Stats().InUse, "прерванный обход возвращает соединение в пул")
+}
+
+func TestPGUserOrdersCanceledContext(t *testing.T) {
+	s, db := newPGStorage(t)
+	alice := insertUser(t, db, "alice")
+	insertOrder(t, db, "12345678903", alice, "NEW", nil, time.Now())
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	var errs []error
+	for _, err := range s.UserOrders(ctx, alice) {
+		errs = append(errs, err)
+	}
+
+	require.Len(t, errs, 1, "при отменённом контексте обход отдаёт только ошибку")
+	assert.ErrorIs(t, errs[0], context.Canceled)
+	assert.ErrorContains(t, errs[0], "не прочитал заказы")
+	assert.Zero(t, db.Stats().InUse)
 }

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"iter"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -66,6 +67,20 @@ func bearer(t *testing.T, userID int64) string {
 	require.NoError(t, err)
 
 	return "Bearer " + token
+}
+
+func seqOf[T any](items []T, err error) iter.Seq2[T, error] {
+	return func(yield func(T, error) bool) {
+		for _, item := range items {
+			if !yield(item, nil) {
+				return
+			}
+		}
+		if err != nil {
+			var zero T
+			yield(zero, err)
+		}
+	}
 }
 
 func send(router http.Handler, method, path, body, authHeader string) *httptest.ResponseRecorder {

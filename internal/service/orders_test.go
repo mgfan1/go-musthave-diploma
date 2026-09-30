@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"iter"
 	"testing"
 	"time"
 
@@ -11,6 +12,20 @@ import (
 
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
+
+func seqOf[T any](items []T, err error) iter.Seq2[T, error] {
+	return func(yield func(T, error) bool) {
+		for _, item := range items {
+			if !yield(item, nil) {
+				return
+			}
+		}
+		if err != nil {
+			var zero T
+			yield(zero, err)
+		}
+	}
+}
 
 func TestUploadOrder(t *testing.T) {
 	const userID, otherID int64 = 7, 8
@@ -116,9 +131,12 @@ func TestListOrders(t *testing.T) {
 	want := []model.Order{{Number: "12345678903", Status: model.StatusNew, UploadedAt: time.Now()}}
 
 	repo := newMockOrderRepository(t)
-	repo.On("UserOrders", mock.Anything, int64(7)).Return(want, nil)
+	repo.On("UserOrders", mock.Anything, int64(7)).Return(seqOf(want, nil))
 
-	got, err := NewOrders(repo).List(t.Context(), 7)
-	require.NoError(t, err)
+	var got []model.Order
+	for o, err := range NewOrders(repo).List(t.Context(), 7) {
+		require.NoError(t, err)
+		got = append(got, o)
+	}
 	assert.Equal(t, want, got)
 }

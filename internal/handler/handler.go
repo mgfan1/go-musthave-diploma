@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"iter"
 	"net/http"
 
 	"go.uber.org/zap"
@@ -30,8 +31,8 @@ type OrderService interface {
 	// принять нельзя, и model.ErrUserNotFound, если пользователя нет, а номер
 	// новый.
 	Upload(ctx context.Context, userID int64, number string) (bool, error)
-	// List возвращает заказы пользователя от новых к старым.
-	List(ctx context.Context, userID int64) ([]model.Order, error)
+	// List отдаёт заказы пользователя от новых к старым.
+	List(ctx context.Context, userID int64) iter.Seq2[model.Order, error]
 }
 
 // BalanceService отдаёт баланс пользователя и списывает баллы.
@@ -43,8 +44,8 @@ type BalanceService interface {
 	// model.ErrInsufficientFunds или model.ErrUserNotFound, если списание
 	// невозможно.
 	Withdraw(ctx context.Context, userID int64, order string, sum model.Money) error
-	// Withdrawals возвращает списания пользователя от новых к старым.
-	Withdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error)
+	// Withdrawals отдаёт списания пользователя от новых к старым.
+	Withdrawals(ctx context.Context, userID int64) iter.Seq2[model.Withdrawal, error]
 }
 
 // Handler переводит запросы HTTP API в вызовы сервисов, а их ошибки в коды
@@ -79,6 +80,17 @@ func requestFields(r *http.Request) []zap.Field {
 		fields = append(fields, zap.Int64("user_id", userID))
 	}
 	return fields
+}
+
+func collect[T, R any](seq iter.Seq2[T, error], convert func(T) R) ([]R, error) {
+	var out []R
+	for v, err := range seq {
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, convert(v))
+	}
+	return out, nil
 }
 
 func (h *Handler) internalError(w http.ResponseWriter, r *http.Request, msg string, err error) {

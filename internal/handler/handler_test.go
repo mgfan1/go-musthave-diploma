@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/auth"
+	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
 
 func observedRouter(users UserService, orders OrderService, balance BalanceService) (http.Handler, *observer.ObservedLogs) {
@@ -34,7 +35,7 @@ func TestInternalErrorLogsRequest(t *testing.T) {
 
 	t.Run("защищённый маршрут", func(t *testing.T) {
 		orders := newMockOrderService(t)
-		orders.On("List", mock.Anything, int64(7)).Return(nil, boom)
+		orders.On("List", mock.Anything, int64(7)).Return(seqOf[model.Order](nil, boom))
 
 		router, logs := observedRouter(newMockUserService(t), orders, newMockBalanceService(t))
 		w := send(router, http.MethodGet, "/api/user/orders", "", bearer(t, 7))
