@@ -27,6 +27,21 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// FlushError сбрасывает ответ под обёрткой.
+func (r *responseRecorder) FlushError() error {
+	return http.NewResponseController(r.ResponseWriter).Flush()
+}
+
+// Flush сбрасывает ответ как http.Flusher.
+func (r *responseRecorder) Flush() {
+	_ = r.FlushError()
+}
+
+// Unwrap отдаёт исходный http.ResponseWriter.
+func (r *responseRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
+}
+
 // Logging пишет в журнал каждый обработанный запрос: адрес, метод,
 // код и размер ответа, длительность обработки.
 func Logging(log *zap.Logger) func(http.Handler) http.Handler {

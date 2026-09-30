@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"compress/gzip"
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -37,6 +38,29 @@ func (g *gzipWriter) Write(b []byte) (int, error) {
 		return g.zw.Write(b)
 	}
 	return g.ResponseWriter.Write(b)
+}
+
+// FlushError сбрасывает сжатую часть ответа и ответ под ней.
+func (g *gzipWriter) FlushError() error {
+	if !g.decided {
+		g.WriteHeader(http.StatusOK)
+	}
+	if g.zw != nil {
+		if err := g.zw.Flush(); err != nil {
+			return fmt.Errorf("не сбросил сжатый ответ: %w", err)
+		}
+	}
+	return http.NewResponseController(g.ResponseWriter).Flush()
+}
+
+// Flush сбрасывает ответ как http.Flusher.
+func (g *gzipWriter) Flush() {
+	_ = g.FlushError()
+}
+
+// Unwrap отдаёт исходный http.ResponseWriter.
+func (g *gzipWriter) Unwrap() http.ResponseWriter {
+	return g.ResponseWriter
 }
 
 // Close дописывает хвост gzip-потока. Для несжатого ответа ничего не делает.
