@@ -73,6 +73,14 @@ go test -coverprofile=cover.out ./...
 go tool cover -func=cover.out | tail -1
 ```
 
+## Бенчмарки
+
+```
+go test -run '^$' -bench . -benchmem ./internal/luhn ./internal/auth ./internal/middleware
+```
+
+Замеряются проверка Луна, разбор токена, сжатие ответа и распаковка запроса.
+
 ## Моки
 
 Моки интерфейсов генерирует [mockery](https://github.com/vektra/mockery) v2 по конфигу `.mockery.yaml`. Они лежат в файлах `mock_*_test.go` рядом с тестами пакета, который объявляет интерфейс, и не попадают в бинарь. После изменения интерфейса:
