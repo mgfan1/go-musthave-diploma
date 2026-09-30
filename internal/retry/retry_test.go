@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -76,26 +77,28 @@ func TestDo(t *testing.T) {
 }
 
 func TestDoStopsOnCanceledContext(t *testing.T) {
-	r := New(zap.NewNop(), time.Second, time.Second, time.Second)
+	synctest.Test(t, func(t *testing.T) {
+		r := New(zap.NewNop(), time.Second, time.Second, time.Second)
 
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
 
-	time.AfterFunc(20*time.Millisecond, cancel)
+		time.AfterFunc(20*time.Millisecond, cancel)
 
-	boom := errors.New("сбой")
-	calls := 0
-	start := time.Now()
+		boom := errors.New("сбой")
+		calls := 0
+		start := time.Now()
 
-	err := r.Do(ctx, always, func() error {
-		calls++
-		return boom
+		err := r.Do(ctx, always, func() error {
+			calls++
+			return boom
+		})
+
+		require.ErrorIs(t, err, context.Canceled)
+		assert.ErrorIs(t, err, boom, "причина последней попытки сохраняется")
+		assert.Equal(t, 1, calls, "после отмены контекста операция не повторяется")
+		assert.Equal(t, 20*time.Millisecond, time.Since(start), "пауза должна прерваться отменой")
 	})
-
-	require.ErrorIs(t, err, context.Canceled)
-	assert.ErrorIs(t, err, boom, "причина последней попытки сохраняется")
-	assert.Equal(t, 1, calls, "после отмены контекста операция не повторяется")
-	assert.Less(t, time.Since(start), time.Second, "пауза должна прерваться отменой")
 }
 
 func TestDoCanceledDuringAttempt(t *testing.T) {
