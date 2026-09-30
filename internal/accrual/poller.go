@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/model"
 )
@@ -83,22 +84,15 @@ func (p *Poller) tick(ctx context.Context) {
 		return
 	}
 
-	jobs := make(chan string)
-
-	var wg sync.WaitGroup
-	for range min(p.workers, len(numbers)) {
-		wg.Go(func() {
-			for number := range jobs {
-				p.poll(ctx, number)
-			}
+	var g errgroup.Group
+	g.SetLimit(p.workers)
+	for _, number := range numbers {
+		g.Go(func() error {
+			p.poll(ctx, number)
+			return nil
 		})
 	}
-
-	for _, number := range numbers {
-		jobs <- number
-	}
-	close(jobs)
-	wg.Wait()
+	_ = g.Wait()
 }
 
 func (p *Poller) poll(ctx context.Context, number string) {
