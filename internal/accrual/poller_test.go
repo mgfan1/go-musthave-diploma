@@ -3,8 +3,8 @@ package accrual
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -83,76 +83,69 @@ func TestPollerTickContinuesAfterApplyError(t *testing.T) {
 }
 
 func TestPollerPausesOnTooManyRequests(t *testing.T) {
-	p, orders, fetcher := newTestPoller(t)
-	p.workers = 1
+	synctest.Test(t, func(t *testing.T) {
+		p, orders, fetcher := newTestPoller(t)
+		p.workers = 1
 
-	orders.On("ClaimPending", mock.Anything, batchSize).Return([]string{"1", "2", "3"}, nil).Once()
-	fetcher.On("Order", mock.Anything, "1").Return(model.AccrualResult{}, &TooManyRequestsError{RetryAfter: time.Minute}).Once()
+		orders.On("ClaimPending", mock.Anything, batchSize).Return([]string{"1", "2", "3"}, nil).Once()
+		fetcher.On("Order", mock.Anything, "1").Return(model.AccrualResult{}, &TooManyRequestsError{RetryAfter: time.Minute}).Once()
 
-	p.tick(t.Context())
+		p.tick(t.Context())
+		fetcher.AssertNumberOfCalls(t, "Order", 1)
 
-	assert.True(t, p.paused(), "после 429 опрос встаёт на паузу")
-	assert.WithinDuration(t, time.Now().Add(time.Minute), p.pausedUntil, 5*time.Second)
-	fetcher.AssertNumberOfCalls(t, "Order", 1)
+		time.Sleep(time.Minute - time.Nanosecond)
+		p.tick(t.Context())
+		orders.AssertNumberOfCalls(t, "ClaimPending", 1)
 
-	p.tick(t.Context())
-	orders.AssertNumberOfCalls(t, "ClaimPending", 1)
-
-	p.pausedUntil = time.Now().Add(-time.Second)
-	orders.On("ClaimPending", mock.Anything, batchSize).Return(nil, nil).Once()
-
-	p.tick(t.Context())
-	orders.AssertNumberOfCalls(t, "ClaimPending", 2)
+		time.Sleep(time.Nanosecond)
+		orders.On("ClaimPending", mock.Anything, batchSize).Return(nil, nil).Once()
+		p.tick(t.Context())
+		orders.AssertNumberOfCalls(t, "ClaimPending", 2)
+	})
 }
 
 func TestPollerPauseIsSharedAndNeverShortened(t *testing.T) {
-	p, _, _ := newTestPoller(t)
+	synctest.Test(t, func(t *testing.T) {
+		p, _, fetcher := newTestPoller(t)
 
-	p.pause(time.Minute)
-	p.pause(time.Second)
-	assert.WithinDuration(t, time.Now().Add(time.Minute), p.pausedUntil, 5*time.Second,
-		"короткая пауза не должна отменять длинную")
+		p.pause(time.Minute)
+		p.pause(time.Second)
 
-	p.poll(t.Context(), "12345678903")
+		time.Sleep(time.Minute - time.Nanosecond)
+		assert.True(t, p.paused(), "короткая пауза не должна отменять длинную")
+		p.poll(t.Context(), "12345678903")
+		fetcher.AssertNotCalled(t, "Order", mock.Anything, mock.Anything)
+
+		time.Sleep(time.Nanosecond)
+		assert.False(t, p.paused())
+	})
 }
 
 func TestPollerLimitsConcurrentRequests(t *testing.T) {
-	p, orders, fetcher := newTestPoller(t)
+	synctest.Test(t, func(t *testing.T) {
+		p, orders, fetcher := newTestPoller(t)
 
-	numbers := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
-	orders.On("ClaimPending", mock.Anything, batchSize).Return(numbers, nil)
-	orders.On("ApplyAccrual", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		numbers := []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"}
+		release := make(chan struct{})
+		orders.On("ClaimPending", mock.Anything, batchSize).Return(numbers, nil)
+		orders.On("ApplyAccrual", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		fetcher.On("Order", mock.Anything, mock.Anything).
+			Run(func(mock.Arguments) { <-release }).
+			Return(model.AccrualResult{Status: model.StatusProcessing}, nil)
 
-	var mu sync.Mutex
-	inFlight, peak := 0, 0
-	full := make(chan struct{})
-	var fullOnce sync.Once
+		go p.tick(t.Context())
 
-	fetcher.On("Order", mock.Anything, mock.Anything).
-		Run(func(mock.Arguments) {
-			mu.Lock()
-			inFlight++
-			peak = max(peak, inFlight)
-			if inFlight == workers {
-				fullOnce.Do(func() { close(full) })
-			}
-			mu.Unlock()
+		synctest.Wait()
+		fetcher.AssertNumberOfCalls(t, "Order", workers)
 
-			select {
-			case <-full:
-			case <-time.After(time.Second):
-			}
+		release <- struct{}{}
+		synctest.Wait()
+		fetcher.AssertNumberOfCalls(t, "Order", workers+1)
 
-			mu.Lock()
-			inFlight--
-			mu.Unlock()
-		}).
-		Return(model.AccrualResult{Status: model.StatusProcessing}, nil)
-
-	p.tick(t.Context())
-
-	assert.Equal(t, workers, peak, "одновременно идёт не больше запросов, чем воркеров")
-	fetcher.AssertNumberOfCalls(t, "Order", len(numbers))
+		close(release)
+		synctest.Wait()
+		fetcher.AssertNumberOfCalls(t, "Order", len(numbers))
+	})
 }
 
 func TestPollerTickStopsOnCancel(t *testing.T) {
@@ -176,34 +169,35 @@ func TestPollerTickStopsOnCancel(t *testing.T) {
 	assert.Zero(t, logs.Len(), "после отмены опрос не пишет предупреждений")
 }
 
-func TestPollerRunStopsOnCancel(t *testing.T) {
-	p, orders, _ := newTestPoller(t)
-	p.interval = time.Millisecond
+func TestPollerRunTicksUntilCancel(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p, orders, _ := newTestPoller(t)
+		orders.On("ClaimPending", mock.Anything, batchSize).Return(nil, nil)
 
-	claimed := make(chan struct{})
-	var claimedOnce sync.Once
-	orders.On("ClaimPending", mock.Anything, batchSize).
-		Run(func(mock.Arguments) { claimedOnce.Do(func() { close(claimed) }) }).
-		Return(nil, nil)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
 
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan struct{})
-	go func() {
-		p.Run(ctx)
-		close(done)
-	}()
+		done := make(chan struct{})
+		go func() {
+			p.Run(ctx)
+			close(done)
+		}()
 
-	select {
-	case <-claimed:
-	case <-time.After(time.Second):
-		t.Fatal("опрос не начался по тикеру")
-	}
+		time.Sleep(pollInterval)
+		synctest.Wait()
+		orders.AssertNumberOfCalls(t, "ClaimPending", 1)
 
-	cancel()
+		time.Sleep(pollInterval)
+		synctest.Wait()
+		orders.AssertNumberOfCalls(t, "ClaimPending", 2)
 
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Run не вернулся после отмены контекста")
-	}
+		cancel()
+		synctest.Wait()
+
+		select {
+		case <-done:
+		default:
+			t.Fatal("Run не вернулся после отмены контекста")
+		}
+	})
 }

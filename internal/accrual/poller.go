@@ -36,11 +36,10 @@ type Fetcher interface {
 // и переносит результаты в заказы. Ответ 429 приостанавливает весь опрос
 // на время из Retry-After.
 type Poller struct {
-	orders   Orders
-	fetcher  Fetcher
-	log      *zap.Logger
-	interval time.Duration
-	workers  int
+	orders  Orders
+	fetcher Fetcher
+	log     *zap.Logger
+	workers int
 
 	mu          sync.Mutex
 	pausedUntil time.Time
@@ -50,18 +49,17 @@ type Poller struct {
 // расчёта запрашивает у fetcher.
 func NewPoller(orders Orders, fetcher Fetcher, log *zap.Logger) *Poller {
 	return &Poller{
-		orders:   orders,
-		fetcher:  fetcher,
-		log:      log,
-		interval: pollInterval,
-		workers:  workers,
+		orders:  orders,
+		fetcher: fetcher,
+		log:     log,
+		workers: workers,
 	}
 }
 
 // Run опрашивает систему расчёта, пока не отменён ctx, и возвращается,
 // когда начатые запросы завершены.
 func (p *Poller) Run(ctx context.Context) {
-	ticker := time.NewTicker(p.interval)
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {
