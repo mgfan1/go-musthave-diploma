@@ -86,9 +86,12 @@ func TestProtectedRoutesRequireToken(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/user/orders"},
 		{http.MethodGet, "/api/user/orders"},
+		{http.MethodHead, "/api/user/orders"},
 		{http.MethodGet, "/api/user/balance"},
+		{http.MethodHead, "/api/user/balance"},
 		{http.MethodPost, "/api/user/balance/withdraw"},
 		{http.MethodGet, "/api/user/withdrawals"},
+		{http.MethodHead, "/api/user/withdrawals"},
 	}
 
 	foreign, err := auth.NewTokens("чужой секрет", time.Hour).Issue(7)
@@ -115,8 +118,45 @@ func TestProtectedRoutesRequireToken(t *testing.T) {
 }
 
 func TestRouterUnknownPath(t *testing.T) {
-	w := send(newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t)), http.MethodGet, "/api/user/unknown", "", "")
-	assert.Equal(t, http.StatusNotFound, w.Code)
+	cases := []string{
+		"/api/user/unknown",
+		"/api/user/orders/",
+		"/api/user",
+	}
+
+	router := newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t))
+
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) {
+			w := send(router, http.MethodGet, c, "", "")
+			assert.Equal(t, http.StatusNotFound, w.Code)
+		})
+	}
+}
+
+func TestRouterMethodNotAllowed(t *testing.T) {
+	cases := []struct {
+		method string
+		path   string
+		allow  string
+	}{
+		{http.MethodGet, "/api/user/register", "POST"},
+		{http.MethodGet, "/api/user/login", "POST"},
+		{http.MethodDelete, "/api/user/orders", "GET, HEAD, POST"},
+		{http.MethodPost, "/api/user/balance", "GET, HEAD"},
+		{http.MethodGet, "/api/user/balance/withdraw", "POST"},
+		{http.MethodPost, "/api/user/withdrawals", "GET, HEAD"},
+	}
+
+	router := newRouter(newMockUserService(t), newMockOrderService(t), newMockBalanceService(t))
+
+	for _, c := range cases {
+		t.Run(c.method+" "+c.path, func(t *testing.T) {
+			w := send(router, c.method, c.path, "", "")
+			assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+			assert.Equal(t, c.allow, w.Header().Get("Allow"))
+		})
+	}
 }
 
 func TestRouterRecoversPanic(t *testing.T) {

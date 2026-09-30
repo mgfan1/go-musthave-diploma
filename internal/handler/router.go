@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	chimw "github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
 	"github.com/mgfan1/go-musthave-diploma/internal/middleware"
@@ -23,42 +21,27 @@ const (
 // отвечают 401, не читая тело. Паника в хендлере даёт 500, обработка дольше
 // десяти секунд даёт 503. Тело запроса читается не больше чем на килобайт
 // после распаковки.
-func (h *Handler) Router(log *zap.Logger, tokens middleware.TokenParser) chi.Router {
+func (h *Handler) Router(log *zap.Logger, tokens middleware.TokenParser) http.Handler {
 	return h.router(log, tokens, handlerTimeout)
 }
 
-func (h *Handler) router(log *zap.Logger, tokens middleware.TokenParser, timeout time.Duration) chi.Router {
-	body := []func(http.Handler) http.Handler{
-		middleware.Gzip,
-		chimw.RequestSize(maxRequestBody),
+func (h *Handler) router(log *zap.Logger, tokens middleware.TokenParser, timeout time.Duration) http.Handler {
+	public := func(next http.HandlerFunc) http.Handler {
+		return middleware.Gzip(http.MaxBytesHandler(next, maxRequestBody))
+	}
+	protected := func(next http.HandlerFunc) http.Handler {
+		return middleware.Auth(tokens)(public(next))
 	}
 
-	r := chi.NewRouter()
-	r.Use(middleware.Logging(log))
-	r.Use(func(next http.Handler) http.Handler {
-		return http.TimeoutHandler(next, timeout, http.StatusText(http.StatusServiceUnavailable))
-	})
-	r.Use(middleware.Recover(log))
+	mux := http.NewServeMux()
+	mux.Handle("POST /api/user/register", public(h.register))
+	mux.Handle("POST /api/user/login", public(h.login))
+	mux.Handle("POST /api/user/orders", protected(h.uploadOrder))
+	mux.Handle("GET /api/user/orders", protected(h.listOrders))
+	mux.Handle("GET /api/user/balance", protected(h.getBalance))
+	mux.Handle("POST /api/user/balance/withdraw", protected(h.withdraw))
+	mux.Handle("GET /api/user/withdrawals", protected(h.listWithdrawals))
 
-	r.Route("/api/user", func(r chi.Router) {
-		r.Group(func(r chi.Router) {
-			r.Use(body...)
-
-			r.Post("/register", h.register)
-			r.Post("/login", h.login)
-		})
-
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.Auth(tokens))
-			r.Use(body...)
-
-			r.Post("/orders", h.uploadOrder)
-			r.Get("/orders", h.listOrders)
-			r.Get("/balance", h.getBalance)
-			r.Post("/balance/withdraw", h.withdraw)
-			r.Get("/withdrawals", h.listWithdrawals)
-		})
-	})
-
-	return r
+	timed := http.TimeoutHandler(middleware.Recover(log)(mux), timeout, http.StatusText(http.StatusServiceUnavailable))
+	return middleware.Logging(log)(timed)
 }
